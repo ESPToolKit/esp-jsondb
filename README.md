@@ -155,6 +155,14 @@ Call `db.getDiag()` to obtain collection/document counts and the active sync con
 - In-memory caching for speed with optional autosync to flash.
 - Schema validation, references and bulk operations out of the box.
 
+## Contributing
+Contributions are very welcome! Please read our [Contribution Guide](CONTRIBUTING.md) to get started.
+
+## Acknowledgments
+- Huge thanks to [Benoît Blanchon](https://github.com/bblanchon), the creator of
+  [ArduinoJson](https://github.com/bblanchon/ArduinoJson) and
+  [ArduinoStreamUtils](https://github.com/bblanchon/ArduinoStreamUtils).  
+  This project builds directly on top of his excellent work.
+
 ## License
 This project is released under the MIT License.
-
