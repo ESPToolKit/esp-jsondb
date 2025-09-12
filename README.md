@@ -11,6 +11,11 @@ esp-jsondb is a lightweight document database for ESP32 devices.  It is inspired
 - The database keeps collections in RAM. Large documents are only practical on boards with PSRAM.
 - Designed for ESP32 + LittleFS. Other platforms or filesystems have not been tested.
 
+## Dependencies
+- [ArduinoStreamUtils](https://github.com/bblanchon/ArduinoStreamUtils) (`ArduinoStreamUtils.h`)
+- [ArduinoJson](https://github.com/bblanchon/ArduinoJson) (`ArduinoJson.h`)
+- [LittleFS](https://github.com/lorol/LittleFS) (`LittleFS.h`)
+
 ## Examples
 Ready-to-run sketches are available in the `examples` directory:
 
