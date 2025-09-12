@@ -11,6 +11,15 @@ esp-jsondb is a lightweight document database for ESP32 devices.  It is inspired
 - The database keeps collections in RAM. Large documents are only practical on boards with PSRAM.
 - Designed for ESP32 + LittleFS. Other platforms or filesystems have not been tested.
 
+## Examples
+Ready-to-run sketches are available in the `examples` directory:
+
+- `QuickStart` - basic database initialization and callbacks
+- `Collections` - create and drop collections
+- `BulkOperations` - batch inserts, updates, and queries
+- `SchemaValidation` - register schemas and validate documents
+- `References` - store and populate document references
+
 ## Quick start
 ```cpp
 #include <esp_jsondb/db.h>
