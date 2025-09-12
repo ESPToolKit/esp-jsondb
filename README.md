@@ -13,7 +13,7 @@ esp-jsondb is a lightweight document database for ESP32 devices.  It is inspired
 
 ## Quick start
 ```cpp
-#include "src/esp-jsondb/db.h"
+#include <esp_jsondb/db.h>
 
 void setup() {
     Serial.begin(115200);
