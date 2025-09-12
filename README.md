@@ -146,6 +146,19 @@ userSchema.validate = usersValidate;
 db.registerSchema("users", userSchema);
 ```
 
+## Timestamps (createdAt / updatedAt)
+
+Every document automatically records its creation and last update time in
+UTC milliseconds (`createdAt` and `updatedAt`).  
+These values are generated at runtime using the ESP32 system clock.
+
+⚠️ **Important:** You must ensure that the ESP32 system time is properly set
+before creating or updating any documents.  
+Call [`configTime(...)`](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/system_time.html)
+and synchronize time (e.g. via NTP) during startup.  
+
+The database itself does not manage or verify time synchronization.
+
 ## Diagnostics & Sync
 Call `db.getDiag()` to obtain collection/document counts and the active sync config. Use `syncNow()` for manual flushes when autosync is disabled.
 
