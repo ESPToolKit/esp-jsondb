@@ -1,6 +1,6 @@
 # esp-jsondb
 
-[![CI](https://github.com/esp-jsondb/esp-jsondb/actions/workflows/ci.yml/badge.svg)](https://github.com/esp-jsondb/esp-jsondb/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/esp-jsondb/esp-jsondb)](https://github.com/esp-jsondb/esp-jsondb/releases)
+[![CI](https://github.com/ESPToolKit/esp-jsondb/actions/workflows/ci.yml/badge.svg)](https://github.com/ESPToolKit/esp-jsondb/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/ESPToolKit/esp-jsondb?sort=semver)](https://github.com/ESPToolKit/esp-jsondb/releases)
 
 esp-jsondb is a lightweight document database for ESP32 devices.  It is inspired by the workflow of MongoDB/Mongoose but tailored for resource‑constrained environments.  Documents are stored as JSON using ArduinoJson and collections are flushed to the filesystem on demand.
 

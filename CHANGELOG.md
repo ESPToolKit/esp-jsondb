@@ -30,6 +30,6 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 - Arduino library metadata (`library.properties`) and PlatformIO metadata (`library.json`).
 - CI workflow to build examples across multiple ESP32 boards.
 
-[Unreleased]: https://github.com/esp-jsondb/esp-jsondb/compare/v1.0.1...HEAD
-[1.0.1]: https://github.com/esp-jsondb/esp-jsondb/releases/tag/v1.0.1
-[1.0.0]: https://github.com/esp-jsondb/esp-jsondb/releases/tag/v1.0.0
+[Unreleased]: https://github.com/ESPToolKit/esp-jsondb/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/ESPToolKit/esp-jsondb/releases/tag/v1.0.1
+[1.0.0]: https://github.com/ESPToolKit/esp-jsondb/releases/tag/v1.0.0
