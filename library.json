@@ -13,10 +13,10 @@
     "storage",
     "mongodb-like"
   ],
-  "homepage": "https://github.com/esp-jsondb/esp-jsondb",
+  "homepage": "https://github.com/ESPToolKit/esp-jsondb",
   "repository": {
     "type": "git",
-    "url": "https://github.com/esp-jsondb/esp-jsondb.git"
+    "url": "https://github.com/ESPToolKit/esp-jsondb.git"
   },
   "license": "MIT",
   "authors": [
@@ -33,11 +33,10 @@
       "version": ">=6.21.0"
     },
     {
-      "name": "ArduinoStreamUtils",
+      "name": "StreamUtils",
       "owner": "bblanchon",
       "version": ">=1.7.0"
     }
   ],
   "headers": ["ESPJsonDB.h"]
 }
-
