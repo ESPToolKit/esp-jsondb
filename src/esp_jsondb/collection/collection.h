@@ -21,8 +21,8 @@
 
 class Collection {
   public:
-	explicit Collection(const std::string &name, const Schema &schema);
-	const std::string &name() const { return _name; }
+    explicit Collection(const std::string &name, const Schema &schema);
+    const std::string &name() const { return _name; }
 
 	// Create from JsonObjectConst (validated)
 	DbResult<std::string> create(JsonObjectConst data); // returns new _id
@@ -90,114 +90,136 @@ class Collection {
 	// written or removed during this call.
 	DbStatus flushDirtyToFs(const std::string &baseDir, bool &didWork);
 
-	// Optional: stats
-	size_t size() const { return _docs.size(); }
+    // Optional: stats
+    size_t size() const { return _docs.size(); }
+
+    // Mark all records as removed (used when dropping a collection)
+    void markAllRemoved() {
+        FrLock lk(_mu);
+        for (auto &kv : _docs) {
+            kv.second->meta.removed = true;
+        }
+    }
 
   private:
 	std::string _name;
 	Schema _schema;
-	std::map<std::string, std::unique_ptr<DocumentRecord>> _docs;
+    // Use shared_ptr to keep records alive while views exist
+    std::map<std::string, std::shared_ptr<DocumentRecord>> _docs;
 	bool _dirty = false;
 	std::vector<std::string> _deletedIds; // files to remove on next flush
 	FrMutex _mu;						  // guards _docs, _deletedIds
 
 	DbStatus writeDocToFile(const std::string &baseDir, const DocumentRecord &r);
-	DbResult<std::unique_ptr<DocumentRecord>> readDocFromFile(const std::string &baseDir, const std::string &id);
+    DbResult<std::shared_ptr<DocumentRecord>> readDocFromFile(const std::string &baseDir, const std::string &id);
     // Enforce unique constraints declared in schema fields; excludes selfId when provided
     DbStatus checkUniqueFields(JsonObjectConst obj, const std::string &selfId);
 };
 
 template <typename Pred>
 DbResult<size_t> Collection::removeMany(Pred &&p) {
-	DbResult<size_t> res{};
-	std::vector<std::string> toErase;
-	toErase.reserve(_docs.size());
-	for (auto &kv : _docs) {
-		DocView v(kv.second.get(), &_schema);
-		if (p(v)) {
-			toErase.push_back(kv.first);
-		}
-	}
-	for (auto &id : toErase) {
-		_deletedIds.push_back(id);
-		_docs.erase(id);
-	}
-	if (!toErase.empty()) _dirty = true;
-	res.status = {DbStatusCode::Ok, ""};
-	dbSetLastError(res.status);
-	res.value = toErase.size();
-	return res;
+    DbResult<size_t> res{};
+    std::vector<std::string> toErase;
+    {
+        FrLock lk(_mu);
+        toErase.reserve(_docs.size());
+    for (auto &kv : _docs) {
+        DocView v(kv.second, &_schema, nullptr);
+        if (p(v)) {
+            toErase.push_back(kv.first);
+        }
+    }
+    for (auto &id : toErase) {
+        auto it = _docs.find(id);
+        if (it != _docs.end()) {
+            it->second->meta.removed = true;
+            _deletedIds.push_back(id);
+            _docs.erase(it);
+        }
+    }
+        if (!toErase.empty()) _dirty = true;
+    }
+    res.status = {DbStatusCode::Ok, ""};
+    dbSetLastError(res.status);
+    res.value = toErase.size();
+    return res;
 }
 
 template <typename Pred, typename Mut, typename>
 DbResult<size_t> Collection::updateMany(Pred &&p, Mut &&m) {
-	DbResult<size_t> res{};
-	size_t count = 0;
-	for (auto &kv : _docs) {
-		DocView v(kv.second.get(), &_schema);
-		if (p(v)) {
-			m(v);
-				if (_schema.hasValidate()) {
-					auto obj = v.asObject();
-					auto ve = _schema.runPreSave(obj);
-					if (!ve.valid) {
-						v.discard();
-						continue;
-					}
-                // Unique constraints
-                auto ust = checkUniqueFields(obj, kv.second->meta.id);
-                if (!ust.ok()) {
-                    v.discard();
-                    continue;
+    DbResult<size_t> res{};
+    size_t count = 0;
+    {
+        FrLock lk(_mu);
+        for (auto &kv : _docs) {
+            DocView v(kv.second, &_schema, nullptr);
+            if (p(v)) {
+                m(v);
+                if (_schema.hasValidate()) {
+                    auto obj = v.asObject();
+                    auto ve = _schema.runPreSave(obj);
+                    if (!ve.valid) {
+                        v.discard();
+                        continue;
+                    }
+                    // Unique constraints
+                    auto ust = checkUniqueFields(obj, kv.second->meta.id);
+                    if (!ust.ok()) {
+                        v.discard();
+                        continue;
+                    }
                 }
-				}
-				auto st = v.commit();
-				if (st.ok()) {
-					++count;
-				}
-		}
-	}
-	if (count) _dirty = true;
-	res.status = {DbStatusCode::Ok, ""};
-	dbSetLastError(res.status);
-	res.value = count;
-	return res;
+                auto st = v.commit();
+                if (st.ok()) {
+                    ++count;
+                }
+            }
+        }
+        if (count) _dirty = true;
+    }
+    res.status = {DbStatusCode::Ok, ""};
+    dbSetLastError(res.status);
+    res.value = count;
+    return res;
 }
 
 template <typename Mut, typename>
 DbResult<size_t> Collection::updateMany(Mut &&m) {
-	DbResult<size_t> res{};
-	size_t count = 0;
-	for (auto &kv : _docs) {
-		DocView v(kv.second.get(), &_schema);
-		if (m(v)) {
-			if (_schema.hasValidate()) {
-				auto obj = v.asObject();
-				auto ve = _schema.runPreSave(obj);
-				if (!ve.valid) {
-					v.discard();
-					continue;
-				}
-                // Unique constraints
-                auto ust = checkUniqueFields(obj, kv.second->meta.id);
-                if (!ust.ok()) {
-                    v.discard();
-                    continue;
+    DbResult<size_t> res{};
+    size_t count = 0;
+    {
+        FrLock lk(_mu);
+        for (auto &kv : _docs) {
+            DocView v(kv.second, &_schema, nullptr);
+            if (m(v)) {
+                if (_schema.hasValidate()) {
+                    auto obj = v.asObject();
+                    auto ve = _schema.runPreSave(obj);
+                    if (!ve.valid) {
+                        v.discard();
+                        continue;
+                    }
+                    // Unique constraints
+                    auto ust = checkUniqueFields(obj, kv.second->meta.id);
+                    if (!ust.ok()) {
+                        v.discard();
+                        continue;
+                    }
                 }
-			}
-			auto st = v.commit();
-			if (st.ok()) {
-				++count;
-			}
-		} else {
-			v.discard();
-		}
-	}
-	if (count) _dirty = true;
-	res.status = {DbStatusCode::Ok, ""};
-	dbSetLastError(res.status);
-	res.value = count;
-	return res;
+                auto st = v.commit();
+                if (st.ok()) {
+                    ++count;
+                }
+            } else {
+                v.discard();
+            }
+        }
+        if (count) _dirty = true;
+    }
+    res.status = {DbStatusCode::Ok, ""};
+    dbSetLastError(res.status);
+    res.value = count;
+    return res;
 }
 
 template <typename Pred, typename>

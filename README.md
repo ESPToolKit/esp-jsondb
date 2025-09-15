@@ -14,6 +14,7 @@ esp-jsondb is a lightweight document database for ESP32 devices.  It is inspired
 - Utilizes StreamUtils for faster read and write operations
 - Optional schema validation with type and unique field support
 - Dirty document tracking with change detection ( prevents unnecessary file IO )
+- Thread safe with IDF mutexes
 
 ## Limitations
 - The database keeps collections in RAM. Large documents are only practical on boards with PSRAM.

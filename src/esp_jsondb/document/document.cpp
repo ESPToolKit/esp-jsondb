@@ -4,8 +4,8 @@
 #include "../utils/time_utils.h"
 #include <utility>
 
-DocView::DocView(DocumentRecord *rec, const Schema *schema, FrMutex *mu)
-	: _rec(rec), _schema(schema), _mu(mu) {}
+DocView::DocView(std::shared_ptr<DocumentRecord> rec, const Schema *schema, FrMutex *mu)
+	: _rec(std::move(rec)), _schema(schema), _mu(mu) {}
 
 DocView::~DocView() {
 	// no auto-commit by default; discard decoded state
@@ -17,7 +17,7 @@ DbStatus DocView::decode() {
 	if (_doc) return dbSetLastError({DbStatusCode::Ok, ""});
 	_doc = std::make_unique<JsonDocument>();
 	// If there is no backing record (e.g., NotFound), treat as empty object
-	if (_rec == nullptr) {
+	if (!_rec) {
 		_doc->to<JsonObject>();
 		return dbSetLastError({DbStatusCode::Ok, ""});
 	}
@@ -65,10 +65,11 @@ struct CompareToBufferPrint : public Print {
 } // namespace
 
 DbStatus DocView::encode() {
-	std::unique_ptr<FrLock> guard;
-	if (_mu) guard = std::make_unique<FrLock>(*_mu);
-	if (!_doc) return dbSetLastError({DbStatusCode::InvalidArgument, "no decoded doc"});
-	if (_rec == nullptr) return dbSetLastError({DbStatusCode::InvalidArgument, "no backing record"});
+    std::unique_ptr<FrLock> guard;
+    if (_mu) guard = std::make_unique<FrLock>(*_mu);
+    if (!_doc) return dbSetLastError({DbStatusCode::InvalidArgument, "no decoded doc"});
+    if (!_rec) return dbSetLastError({DbStatusCode::InvalidArgument, "no backing record"});
+    if (_rec->meta.removed) return dbSetLastError({DbStatusCode::NotFound, "document removed"});
 
 	// First, measure the size of the new serialization
 	size_t sz = measureMsgPack(_doc->as<JsonVariantConst>());
@@ -93,10 +94,10 @@ DbStatus DocView::encode() {
 	if (written != sz) {
 		return dbSetLastError({DbStatusCode::IoError, "serialize msgpack size mismatch"});
 	}
-	_rec->meta.updatedAt = nowUtcMs();
-	_rec->meta.dirty = true;
-	_dirtyLocally = false;
-	return dbSetLastError({DbStatusCode::Ok, ""});
+    _rec->meta.updatedAt = nowUtcMs();
+    _rec->meta.dirty = true;
+    _dirtyLocally = false;
+    return dbSetLastError({DbStatusCode::Ok, ""});
 }
 
 JsonVariant DocView::operator[](const char *key) {

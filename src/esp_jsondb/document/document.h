@@ -21,10 +21,11 @@
  * The database does not manage or check time synchronization.
  */
 struct DocumentMeta {
-	uint32_t createdAt = 0; // UTC milliseconds
-	uint32_t updatedAt = 0; // UTC milliseconds
-	std::string id;			// 24-hex ObjectId
-	bool dirty = false;		// needs flush to FS
+    uint32_t createdAt = 0; // UTC milliseconds
+    uint32_t updatedAt = 0; // UTC milliseconds
+    std::string id;			// 24-hex ObjectId
+    bool dirty = false;		// needs flush to FS
+    bool removed = false;     // logically deleted; DocView::commit should fail
 };
 
 // Internal storage unit (owned by Collection)
@@ -40,7 +41,7 @@ struct DocumentRecord {
 // - On commit(): reserialize to MessagePack and mark dirty
 class DocView {
   public:
-	DocView(DocumentRecord *rec, const Schema *schema = nullptr, FrMutex *mu = nullptr);
+	DocView(std::shared_ptr<DocumentRecord> rec, const Schema *schema = nullptr, FrMutex *mu = nullptr);
 	~DocView(); // optional auto-commit if enabled
 
 	// non-copyable, movable
@@ -79,7 +80,7 @@ class DocView {
 	}
 
   private:
-	DocumentRecord *_rec = nullptr;
+	std::shared_ptr<DocumentRecord> _rec; // shared lifetime with collection
 	const Schema *_schema = nullptr;
 	std::unique_ptr<JsonDocument> _doc; // decoded pool
 	bool _dirtyLocally = false;

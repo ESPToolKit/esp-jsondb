@@ -78,13 +78,17 @@ void DataBase::onSync(const std::function<void()> &cb) {
 }
 
 DbStatus DataBase::dropCollection(const std::string &name) {
-	FrLock lk(_mu);
-	auto it = _cols.find(name);
-	if (it != _cols.end()) {
-		_cols.erase(it);
-	} else {
-		return setLastError({DbStatusCode::Ok, ""});
-	}
+    FrLock lk(_mu);
+    auto it = _cols.find(name);
+    if (it != _cols.end()) {
+        if (it->second) {
+            // Mark all docs removed to invalidate outstanding views safely
+            it->second->markAllRemoved();
+        }
+        _cols.erase(it);
+    } else {
+        return setLastError({DbStatusCode::Ok, ""});
+    }
 	// Update diag cache immediately to avoid reporting stale collections
 	auto dit = _diagCache.docsPerCollection.find(name);
 	if (dit != _diagCache.docsPerCollection.end()) {
@@ -494,19 +498,22 @@ DbStatus dbSetLastError(const DbStatus &st) {
 }
 
 DbStatus DataBase::dropAll() {
-	bool shouldRestart = false;
-	{
-		FrLock lk(_mu);
-		// Stop autosync task to avoid races while removing files
-		shouldRestart = _cfg.autosync;
-		stopSyncTaskUnlocked();
+    bool shouldRestart = false;
+    {
+        FrLock lk(_mu);
+        // Stop autosync task to avoid races while removing files
+        shouldRestart = _cfg.autosync;
+        stopSyncTaskUnlocked();
 
-		// Clear in-memory state
-		_cols.clear();
-		_colsToDelete.clear();
-		_diagCache.docsPerCollection.clear();
-		_diagCache.collections = 0;
-	}
+        // Clear in-memory state
+        for (auto &kv : _cols) {
+            if (kv.second) kv.second->markAllRemoved();
+        }
+        _cols.clear();
+        _colsToDelete.clear();
+        _diagCache.docsPerCollection.clear();
+        _diagCache.collections = 0;
+    }
 
 	// Remove base directory tree and recreate base dir
 	{
