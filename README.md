@@ -16,6 +16,43 @@ esp-jsondb is a lightweight document database for ESP32 devices.  It is inspired
 - [ArduinoJson](https://github.com/bblanchon/ArduinoJson) (`ArduinoJson.h`)
 - [LittleFS](https://github.com/lorol/LittleFS) (`LittleFS.h`)
 
+## Installation
+
+### Arduino IDE
+- Library Manager: Search for "ESPJsonDB" in Library Manager. If not yet indexed, use manual install.
+- Manual install: Download this repository as ZIP and import via
+  `Sketch → Include Library → Add .ZIP Library…`.
+- Include in your sketch:
+  ```cpp
+  #include <ESPJsonDB.h>
+  ```
+
+### PlatformIO (and pioarduino)
+Add the libraries to your `platformio.ini` under `lib_deps`. You can reference
+this library and StreamUtils directly by Git URL; ArduinoJson can be pulled from the registry.
+
+Minimal example:
+```ini
+[env:esp32dev]
+platform = espressif32
+framework = arduino
+board = esp32dev
+
+lib_deps =
+    ArduinoJson
+    https://github.com/bblanchon/ArduinoStreamUtils
+    https://github.com/ESPToolKit/esp-jsondb.git
+```
+
+Then include the umbrella header in your code:
+```cpp
+#include <ESPJsonDB.h>
+```
+
+Notes:
+- If you are using pioarduino, you can add the same Git URLs to `lib_deps`.
+- Ensure LittleFS support is available for your ESP32 Arduino core; initialize it before `db.init()`.
+
 ## Examples
 Ready-to-run sketches are available in the `examples` directory:
 
@@ -51,10 +88,6 @@ void setup() {
     });
 }
 ```
-
-## Common pitfalls
-- baseDir must be a valid LittleFS path. The library now normalizes it, but if you pass a relative path like `"db"`, it becomes `"/db"` internally.
-- If you saw "mkdir baseDir failed", it was likely due to a relative `baseDir` without a leading `/`. This is handled automatically now.
 
 ## Working with documents
 Create and remove documents inside a collection:
