@@ -38,5 +38,10 @@
       "version": ">=1.7.0"
     }
   ],
-  "headers": ["ESPJsonDB.h"]
+  "headers": ["ESPJsonDB.h"],
+  "build": {
+    "flags": [
+      "-std=gnu++17"
+    ]
+  }
 }

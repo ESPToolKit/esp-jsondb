@@ -72,9 +72,12 @@ inline const char *dbStatusCodeToString(DbStatusCode code) {
 }
 
 struct DbStatus {
-	DbStatusCode code = DbStatusCode::Ok;
-	const char *message = "";
-	bool ok() const { return code == DbStatusCode::Ok; }
+    DbStatusCode code = DbStatusCode::Ok;
+    const char *message = "";
+    // Explicit default and convenience constructor to allow brace assignments
+    DbStatus() = default;
+    DbStatus(DbStatusCode c, const char *msg) : code(c), message(msg) {}
+    bool ok() const { return code == DbStatusCode::Ok; }
 };
 
 template <typename T>
