@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        run: |
+          TAG_NAME="${GITHUB_REF##*/}"
+          VERSION="${TAG_NAME#v}"
+          awk -v ver="$VERSION" '
+            BEGIN{found=0}
+            /^## \[/ {
+              if (found) exit;
+            }
+            $0 ~ "^## \[" ver "\]" {found=1}
+            found {print}
+          ' CHANGELOG.md > RELEASE_BODY.md
+          echo "Generated notes:" && sed -n '1,120p' RELEASE_BODY.md
+
+      - name: Set up Arduino CLI
+        uses: arduino/setup-arduino-cli@v1
+
+      - name: Install ESP32 core
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+
+      - name: Install libraries
+        run: |
+          arduino-cli lib update-index
+          arduino-cli lib install "ArduinoJson" "StreamUtils"
+
+      - name: Build and collect example binaries
+        env:
+          OUTDIR: artifacts
+        run: |
+          set -e
+          mkdir -p "$OUTDIR"
+          build_one() {
+            local fqbn="$1"; local board="$2"; local d="$3"; local name
+            name=$(basename "$d")
+            echo "Compiling $name for $board ($fqbn)"
+            arduino-cli compile --fqbn "$fqbn" --export-binaries --libraries . --output-dir "$OUTDIR/$name/$board" "$d"
+          }
+          for d in examples/*; do
+            [ -d "$d" ] || continue
+            build_one esp32:esp32:esp32 esp32dev "$d"
+            build_one esp32:esp32:esp32s3 esp32-s3-devkitc-1 "$d"
+            build_one esp32:esp32:esp32c3 esp32-c3-devkitm-1 "$d"
+          done
+          echo "Built artifacts:" && find "$OUTDIR" -type f -maxdepth 4 -print
+
+      - name: Create GitHub Release (draft) with assets
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          draft: true
+          body_path: RELEASE_BODY.md
+          files: |
+            artifacts/**
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

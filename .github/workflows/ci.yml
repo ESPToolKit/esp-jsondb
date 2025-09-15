@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-examples:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        board: [esp32dev, esp32-s3-devkitc-1, esp32-c3-devkitm-1]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: ${{ runner.os }}-platformio-${{ hashFiles('**/library.json') }}
+          restore-keys: |
+            ${{ runner.os }}-platformio-
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Build library examples (ESP32 Arduino)
+        run: |
+          pio update
+          pio ci --board ${{ matrix.board }} --lib="."
+
+  arduino-cli:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        board:
+          - fqbn: esp32:esp32:esp32
+            name: esp32dev
+          - fqbn: esp32:esp32:esp32s3
+            name: esp32-s3-devkitc-1
+          - fqbn: esp32:esp32:esp32c3
+            name: esp32-c3-devkitm-1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Arduino CLI
+        uses: arduino/setup-arduino-cli@v1
+
+      - name: Install ESP32 core
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+
+      - name: Install libraries
+        run: |
+          arduino-cli lib update-index
+          arduino-cli lib install "ArduinoJson" "StreamUtils"
+
+      - name: Build examples (${{ matrix.board.name }})
+        env:
+          FQBN: ${{ matrix.board.fqbn }}
+        run: |
+          set -e
+          for d in examples/*; do
+            if [ -d "$d" ]; then
+              echo "Compiling $d"
+              arduino-cli compile --fqbn "$FQBN" --libraries . "$d"
+            fi
+          done

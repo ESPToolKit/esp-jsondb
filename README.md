@@ -1,5 +1,7 @@
 # esp-jsondb
 
+[![CI](https://github.com/esp-jsondb/esp-jsondb/actions/workflows/ci.yml/badge.svg)](https://github.com/esp-jsondb/esp-jsondb/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/esp-jsondb/esp-jsondb)](https://github.com/esp-jsondb/esp-jsondb/releases)
+
 esp-jsondb is a lightweight document database for ESP32 devices.  It is inspired by the workflow of MongoDB/Mongoose but tailored for resource‑constrained environments.  Documents are stored as JSON using ArduinoJson and collections are flushed to the filesystem on demand.
 
 ## Goals
@@ -52,6 +54,12 @@ Then include the umbrella header in your code:
 Notes:
 - If you are using pioarduino, you can add the same Git URLs to `lib_deps`.
 - Ensure LittleFS support is available for your ESP32 Arduino core; initialize it before `db.init()`.
+
+After publishing to the PlatformIO Registry, users can install by name:
+```ini
+lib_deps =
+  ESPJsonDB
+```
 
 ## Examples
 Ready-to-run sketches are available in the `examples` directory:
@@ -341,3 +349,17 @@ Contributions are very welcome! Please read our [Contribution Guide](CONTRIBUTIN
 
 ## License
 This project is released under the MIT License.
+
+See also: `CHANGELOG.md` for version history and notable changes.
+
+## Publishing
+
+- Arduino Library Manager:
+  - Ensure `library.properties` is valid and the repo is public with a semver tag (e.g., `v1.0.0`).
+  - Submit the repository URL to the Arduino Library Registry following their submission guide: https://github.com/arduino/library-registry
+  - After indexing, users install via Library Manager by searching “ESPJsonDB”.
+
+- PlatformIO Registry:
+  - Ensure `library.json` exists and push a semver tag (e.g., `v1.0.0`).
+  - Publish the library by adding your GitHub repo in the PlatformIO Registry UI: https://platformio.org/lib
+  - Once indexed, users can add to `platformio.ini` with `lib_deps = ESPJsonDB`.

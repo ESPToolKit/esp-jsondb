@@ -1,0 +1,43 @@
+{
+  "name": "ESPJsonDB",
+  "version": "1.0.0",
+  "description": "Lightweight JSON document database for ESP32 (Arduino). MongoDB-like API with optional autosync to LittleFS.",
+  "keywords": [
+    "esp32",
+    "arduino",
+    "json",
+    "database",
+    "nosql",
+    "document",
+    "littlefs",
+    "storage",
+    "mongodb-like"
+  ],
+  "homepage": "https://github.com/esp-jsondb/esp-jsondb",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/esp-jsondb/esp-jsondb.git"
+  },
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "zekageri"
+    }
+  ],
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"],
+  "dependencies": [
+    {
+      "name": "ArduinoJson",
+      "owner": "bblanchon",
+      "version": ">=6.21.0"
+    },
+    {
+      "name": "ArduinoStreamUtils",
+      "owner": "bblanchon",
+      "version": ">=1.7.0"
+    }
+  ],
+  "headers": ["ESPJsonDB.h"]
+}
+
