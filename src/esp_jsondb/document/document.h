@@ -61,6 +61,10 @@ class DocView {
 	JsonObject asObject();
 	JsonObjectConst asObjectConst() const;
 
+	// Convenience: read a field or return a default if absent/invalid
+	template <typename T>
+	T getOr(const char *field, T def) const;
+
 	// DocRef helpers
 	DocRef getRef(const char *field) const;
 	DocView populate(const char *field, uint8_t maxDepth = 4) const;
@@ -80,3 +84,16 @@ class DocView {
 	DbStatus decode();
 	DbStatus encode();
 };
+
+template <typename T>
+T DocView::getOr(const char *field, T def) const {
+	if (!_doc) {
+		// Need to const_cast to decode lazily
+		auto self = const_cast<DocView *>(this);
+		if (!self->decode().ok()) return def;
+	}
+	JsonVariantConst v = _doc->as<JsonVariantConst>()[field];
+	if (v.isNull()) return def;
+	if (!v.template is<T>()) return def;
+	return v.as<T>();
+}

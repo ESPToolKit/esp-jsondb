@@ -59,6 +59,12 @@ userDoc["username"] = "esp-jsondb";
 auto createRes = db.create("users", userDoc.as<JsonObjectConst>());
 if (createRes.status.ok()) {
     Serial.printf("Created user %s\n", createRes.value.c_str());
+    // Read with default using DocView::getOr
+    auto findRes = db.findById("users", createRes.value);
+    if (findRes.status.ok()) {
+        const char *ssid = findRes.value.getOr<const char *>("ssid", SSID);
+        Serial.printf("SSID: %s\n", ssid);
+    }
     db.removeById("users", createRes.value);   // delete it again
 }
 ```
