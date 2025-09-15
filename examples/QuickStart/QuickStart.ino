@@ -3,30 +3,30 @@
 void setup() {
     Serial.begin(115200);
 
-    SyncConfig cfg;
-    cfg.intervalMs = 3000;  // autosync every 3s
-    cfg.autosync = true;
+    SyncConfig syncCfg;
+    syncCfg.intervalMs = 3000;  // autosync every 3s
+    syncCfg.autosync = true;
 
-    if (!db.init("/example_db", cfg).ok()) {
+    if (!db.init("/example_db", syncCfg).ok()) {
         Serial.println("DB init failed");
         return;
     }
 
-    db.onEvent([](DBEventType evt){
-        Serial.printf("Event: %s\n", dbEventTypeToString(evt));
+    db.onEvent([](DBEventType event){
+        Serial.printf("Event: %s\n", dbEventTypeToString(event));
     });
 
-    db.onError([](const DbStatus &st){
-        Serial.printf("Error: %s\n", st.message);
+    db.onError([](const DbStatus &status){
+        Serial.printf("Error: %s\n", status.message);
     });
 
-    JsonDocument user;
-    user["email"] = "espjsondb@gmail.com";
-    user["username"] = "esp-jsondb";
-    auto res = db.create("users", user.as<JsonObjectConst>());
-    if (res.status.ok()) {
-        Serial.printf("Created user %s\n", res.value.c_str());
-        db.removeById("users", res.value);
+    JsonDocument userDoc;
+    userDoc["email"] = "espjsondb@gmail.com";
+    userDoc["username"] = "esp-jsondb";
+    auto createRes = db.create("users", userDoc.as<JsonObjectConst>());
+    if (createRes.status.ok()) {
+        Serial.printf("Created user %s\n", createRes.value.c_str());
+        db.removeById("users", createRes.value);
     }
 }
 

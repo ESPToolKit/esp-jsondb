@@ -32,11 +32,11 @@ Ready-to-run sketches are available in the `examples` directory:
 void setup() {
     Serial.begin(115200);
 
-    SyncConfig cfg;
-    cfg.intervalMs = 3000;  // autosync every 3s
-    cfg.autosync = true;
+    SyncConfig syncCfg;
+    syncCfg.intervalMs = 3000;  // autosync every 3s
+    syncCfg.autosync = true;
 
-    if (!db.init("/test_db", cfg).ok()) {
+    if (!db.init("/test_db", syncCfg).ok()) {
         Serial.println("DB init failed");
         return;
     }
@@ -53,27 +53,27 @@ void setup() {
 ## Working with documents
 Create and remove documents inside a collection:
 ```cpp
-JsonDocument user;
-user["email"] = "espjsondb@gmail.com";
-user["username"] = "esp-jsondb";
-auto res = db.create("users", user.as<JsonObjectConst>());
-if (res.status.ok()) {
-    Serial.printf("Created user %s\n", res.value.c_str());
-    db.removeById("users", res.value);   // delete it again
+JsonDocument userDoc;
+userDoc["email"] = "espjsondb@gmail.com";
+userDoc["username"] = "esp-jsondb";
+auto createRes = db.create("users", userDoc.as<JsonObjectConst>());
+if (createRes.status.ok()) {
+    Serial.printf("Created user %s\n", createRes.value.c_str());
+    db.removeById("users", createRes.value);   // delete it again
 }
 ```
 
 Add several documents and delete those matching a predicate:
 ```cpp
 for (int i = 0; i < 10; ++i) {
-    JsonDocument u;
-    u["email"] = "espjsondb_" + String(i) + "@gmail.com";
-    u["role"]  = i % 2 ? "admin" : "user";
-    db.create("users", u.as<JsonObjectConst>());
+    JsonDocument userDoc;
+    userDoc["email"] = "espjsondb_" + String(i) + "@gmail.com";
+    userDoc["role"]  = i % 2 ? "admin" : "user";
+    db.create("users", userDoc.as<JsonObjectConst>());
 }
 
-auto removed = db.removeMany("users", [](const DocView &d){
-    return d["role"].as<std::string>() == "admin";
+auto removed = db.removeMany("users", [](const DocView &doc){
+    return doc["role"].as<std::string>() == "admin";
 });
 Serial.printf("Removed %d admins\n", removed.value);
 ```
@@ -90,37 +90,58 @@ db.updateMany("users", patch, filter);
 
 Or perform the mutation directly in code:
 ```cpp
-db.updateMany("users", [](DocView &d){
-    if (d["role"].as<std::string>() == "user") {
-        d["role"].set("admin");
+db.updateMany("users", [](DocView &doc){
+    if (doc["role"].as<std::string>() == "user") {
+        doc["role"].set("admin");
         return true;    // count this document
     }
     return false;
 });
 
-auto found = db.findMany("users", [](const DocView &d){
-    return d["role"].as<std::string>() == "admin";
+auto found = db.findMany("users", [](const DocView &doc){
+    return doc["role"].as<std::string>() == "admin";
 });
 Serial.printf("Found %d admins\n", found.value.size());
+```
+
+Find a single document with findOne:
+```cpp
+// 1) Using a predicate (lambda)
+auto firstAdmin = db.findOne("users", [](const DocView &doc){
+    return doc["role"].as<std::string>() == "admin";
+});
+if (firstAdmin.status.ok()) {
+    Serial.printf("First admin: %s\n", firstAdmin.value["email"].as<const char *>());
+} else {
+    Serial.println("No admin found");
+}
+
+// 2) Using a JSON filter (key == value pairs)
+JsonDocument userFilter;
+userFilter["role"] = "user";
+auto firstUser = db.findOne("users", userFilter);
+if (firstUser.status.ok()) {
+    Serial.printf("First user: %s\n", firstUser.value["email"].as<const char *>());
+}
 ```
 
 ## References
 Collections can store references to each other. The `populate` helper resolves them:
 ```cpp
-JsonDocument author;
-author["name"] = "John Doe";
-auto a = db.create("authors", author.as<JsonObjectConst>());
+JsonDocument authorDoc;
+authorDoc["name"] = "John Doe";
+auto authorCreateRes = db.create("authors", authorDoc.as<JsonObjectConst>());
 
-DocRef authRef{"authors", a.value};
+DocRef authorRef{"authors", authorCreateRes.value};
 JsonDocument book;
 book["title"] = "Example Book";
-JsonObject ref = book["author"].to<JsonObject>();
-ref["collection"] = authRef.collection;
-ref["_id"] = authRef.id;
+JsonObject authorRefObj = book["author"].to<JsonObject>();
+authorRefObj["collection"] = authorRef.collection;
+authorRefObj["_id"] = authorRef.id;
 db.create("books", book.as<JsonObjectConst>());
 
-auto fr = db.findById("books", a.value);
-auto populated = fr.value.populate("author");
+auto bookFindRes = db.findById("books", authorCreateRes.value);
+auto populated = bookFindRes.value.populate("author");
 Serial.println(populated["name"].as<const char*>());  // "John Doe"
 ```
 

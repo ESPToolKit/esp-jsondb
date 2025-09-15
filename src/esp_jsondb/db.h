@@ -57,6 +57,12 @@ class DataBase {
 	DbResult<std::vector<DocView>> findMany(const std::string &collectionName,
 											std::function<bool(const DocView &)> pred);
 
+	// Convenience: find the first document matching predicate in the given collection
+	DbResult<DocView> findOne(const std::string &collectionName, std::function<bool(const DocView &)> pred);
+
+	// Convenience: find the first document matching a JSON filter in the given collection
+	DbResult<DocView> findOne(const std::string &collectionName, const JsonDocument &filter);
+
 	// Convenience: update a document by _id in the given collection
 	DbStatus updateById(const std::string &collectionName, const std::string &id, std::function<void(DocView &)> mutator);
 

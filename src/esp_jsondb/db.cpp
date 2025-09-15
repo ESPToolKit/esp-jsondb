@@ -158,6 +158,24 @@ DbResult<std::vector<DocView>> DataBase::findMany(const std::string &name,
 	return cr.value->findMany(std::move(pred));
 }
 
+DbResult<DocView> DataBase::findOne(const std::string &name, std::function<bool(const DocView &)> pred) {
+	auto cr = collection(name);
+	if (!cr.status.ok()) {
+		// Return placeholder DocView; caller should check status before use
+		return {cr.status, DocView(nullptr)};
+	}
+	return cr.value->findOne(std::move(pred));
+}
+
+DbResult<DocView> DataBase::findOne(const std::string &name, const JsonDocument &filter) {
+	auto cr = collection(name);
+	if (!cr.status.ok()) {
+		// Return placeholder DocView; caller should check status before use
+		return {cr.status, DocView(nullptr)};
+	}
+	return cr.value->findOne(filter);
+}
+
 DbStatus DataBase::updateById(const std::string &name, const std::string &id, std::function<void(DocView &)> mutator) {
 	auto cr = collection(name);
 	if (!cr.status.ok()) {

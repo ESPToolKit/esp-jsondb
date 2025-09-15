@@ -33,6 +33,12 @@ class Collection {
 	// Retrieve all documents matching predicate
 	DbResult<std::vector<DocView>> findMany(std::function<bool(const DocView &)> pred);
 
+	// Retrieve the first document matching predicate
+	DbResult<DocView> findOne(std::function<bool(const DocView &)> pred);
+
+	// Retrieve the first document matching a JSON filter (key==value pairs)
+	DbResult<DocView> findOne(const JsonDocument &filter);
+
 	// Update single by id (mutate via view)
 	DbStatus updateById(const std::string &id, std::function<void(DocView &)> mutator);
 

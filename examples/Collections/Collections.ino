@@ -13,8 +13,8 @@ void setup() {
     }
     db.dropCollection("sensors");
 
-    for (int i = 0; i < 3; ++i) {
-        db.collection("test_" + String(i));
+    for (int index = 0; index < 3; ++index) {
+        db.collection("test_" + String(index));
     }
     db.dropAll();
 }

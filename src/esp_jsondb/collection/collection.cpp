@@ -77,6 +77,34 @@ DbResult<std::vector<DocView>> Collection::findMany(std::function<bool(const Doc
 	return res;
 }
 
+DbResult<DocView> Collection::findOne(std::function<bool(const DocView &)> pred) {
+	// Iterate over in-memory docs and return the first matching view
+	for (auto &kv : _docs) {
+		DocView v(kv.second.get(), &_schema);
+		if (!pred || pred(v)) {
+			DbStatus st{DbStatusCode::Ok, ""};
+			dbSetLastError(st);
+			return {st, DocView(kv.second.get(), &_schema, &_mu)};
+		}
+	}
+	DbStatus st{DbStatusCode::NotFound, "document not found"};
+	dbSetLastError(st);
+	return {st, DocView(nullptr, &_schema, &_mu)};
+}
+
+DbResult<DocView> Collection::findOne(const JsonDocument &filter) {
+	// Build an inline predicate from the filter object
+	auto pred = [&](const DocView &v) {
+		for (auto kv : filter.as<JsonObjectConst>()) {
+			if (v[kv.key().c_str()] != kv.value()) {
+				return false;
+			}
+		}
+		return true;
+	};
+	return findOne(std::move(pred));
+}
+
 DbStatus Collection::updateById(const std::string &id, std::function<void(DocView &)> mutator) {
 	bool updated = false;
 	DbStatus st{DbStatusCode::Ok, ""};

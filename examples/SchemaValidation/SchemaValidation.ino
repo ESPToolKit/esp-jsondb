@@ -25,12 +25,12 @@ void setup() {
     userSchema.validate = usersValidate;
     db.registerSchema("users", userSchema);
 
-    JsonDocument user;
-    user["username"] = "esp-jsondb";
-    user["password"] = "secret";
-    auto res = db.create("users", user.as<JsonObjectConst>());
-    if (res.status.ok()) {
-        Serial.printf("Created user %s\n", res.value.c_str());
+    JsonDocument userDoc;
+    userDoc["username"] = "esp-jsondb";
+    userDoc["password"] = "secret";
+    auto createRes = db.create("users", userDoc.as<JsonObjectConst>());
+    if (createRes.status.ok()) {
+        Serial.printf("Created user %s\n", createRes.value.c_str());
     }
 }
 

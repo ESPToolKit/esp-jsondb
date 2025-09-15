@@ -9,29 +9,29 @@ void setup() {
         return;
     }
 
-    JsonDocument author;
-    author["name"] = "John Doe";
-    auto ar = db.create("authors", author.as<JsonObjectConst>());
-    if (!ar.status.ok()) {
-        Serial.printf("Author create failed: %s\n", ar.status.message);
+    JsonDocument authorDoc;
+    authorDoc["name"] = "John Doe";
+    auto authorCreateRes = db.create("authors", authorDoc.as<JsonObjectConst>());
+    if (!authorCreateRes.status.ok()) {
+        Serial.printf("Author create failed: %s\n", authorCreateRes.status.message);
         return;
     }
 
-    DocRef ref{"authors", ar.value};
+    DocRef authorRef{"authors", authorCreateRes.value};
     JsonDocument book;
     book["title"] = "Example Book";
-    JsonObject refObj = book["author"].to<JsonObject>();
-    refObj["collection"] = ref.collection;
-    refObj["_id"] = ref.id;
-    auto br = db.create("books", book.as<JsonObjectConst>());
-    if (!br.status.ok()) {
-        Serial.printf("Book create failed: %s\n", br.status.message);
+    JsonObject authorRefObj = book["author"].to<JsonObject>();
+    authorRefObj["collection"] = authorRef.collection;
+    authorRefObj["_id"] = authorRef.id;
+    auto bookCreateRes = db.create("books", book.as<JsonObjectConst>());
+    if (!bookCreateRes.status.ok()) {
+        Serial.printf("Book create failed: %s\n", bookCreateRes.status.message);
         return;
     }
 
-    auto fr = db.findById("books", br.value);
-    if (fr.status.ok()) {
-        auto populated = fr.value.populate("author");
+    auto bookFindRes = db.findById("books", bookCreateRes.value);
+    if (bookFindRes.status.ok()) {
+        auto populated = bookFindRes.value.populate("author");
         if (db.lastError().ok()) {
             Serial.printf("Author: %s\n", populated["name"].as<const char*>());
         }
