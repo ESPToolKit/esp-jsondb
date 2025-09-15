@@ -39,7 +39,12 @@ jobs:
           for d in examples/*; do
             if [ -d "$d" ]; then
               echo "Building $d on ${{ matrix.board }} via PlatformIO CI"
-              pio ci "$d" --board ${{ matrix.board }} --lib="."
+              # Force C++17 for this project to satisfy library requirements
+              pio ci "$d" \
+                --board ${{ matrix.board }} \
+                --lib="." \
+                --project-option "build_unflags=-std=gnu++11" \
+                --project-option "build_flags=-std=gnu++17"
             fi
           done
 
@@ -70,7 +75,8 @@ jobs:
       - name: Install libraries
         run: |
           arduino-cli lib update-index
-          arduino-cli lib install "ArduinoJson" "ArduinoStreamUtils"
+          # Use correct Library Manager names
+          arduino-cli lib install "ArduinoJson" "StreamUtils"
 
       - name: Build examples (${{ matrix.board.name }})
         env:
