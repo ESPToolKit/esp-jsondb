@@ -118,23 +118,23 @@ void DbTester::schemaFailDocUpdate() {
 	} else {
 		ESP_LOGI(DB_TESTER_TAG, "New user created");
 	}
-	const std::string id = createRes.value;
+    const std::string userId = createRes.value;
 
 	// Attempt to update with invalid data (wrong type for password)
-	DbStatus st = db.updateById("users", id, [](DocView &v) {
-		v["password"].set(123);
-	});
-	if (!st.ok()) {
-		ESP_LOGE(
-			DB_TESTER_TAG,
-			"Failed to update user document. Error: %s",
-			st.message);
-	} else {
-		ESP_LOGI(DB_TESTER_TAG, "User document updated");
-	}
+    DbStatus updateStatus = db.updateById("users", userId, [](DocView &doc) {
+        doc["password"].set(123);
+    });
+    if (!updateStatus.ok()) {
+        ESP_LOGE(
+            DB_TESTER_TAG,
+            "Failed to update user document. Error: %s",
+            updateStatus.message);
+    } else {
+        ESP_LOGI(DB_TESTER_TAG, "User document updated");
+    }
 
 	// Verify the original document remains unchanged
-	auto findRes = db.findById("users", id);
+    auto findRes = db.findById("users", userId);
 
 	if (!findRes.status.ok()) {
 		ESP_LOGE(

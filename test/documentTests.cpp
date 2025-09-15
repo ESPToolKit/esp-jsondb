@@ -30,11 +30,11 @@ void DbTester::simpleDocRemove(){
 
 void DbTester::multiDocCreate(int docNum){
 	int created = 0;
-	for (int i = 0; i < docNum; i++) {
+	for (int index = 0; index < docNum; index++) {
 		JsonDocument newUser;
-		newUser["email"] = "espjsondb_" + std::to_string(i) + "_@gmail.com";
-		newUser["username"] = "esp-jsondb_" + std::to_string(i);
-		newUser["role"] = i % 2 ? "admin" : "user";
+		newUser["email"] = "espjsondb_" + std::to_string(index) + "_@gmail.com";
+		newUser["username"] = "esp-jsondb_" + std::to_string(index);
+		newUser["role"] = index % 2 ? "admin" : "user";
 		auto result = db.create("users", newUser.as<JsonObjectConst>());
 		if (result.status.ok()) {
 			created++;
