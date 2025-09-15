@@ -78,6 +78,13 @@ jobs:
           # Use correct Library Manager names
           arduino-cli lib install "ArduinoJson" "StreamUtils"
 
+      - name: Add local library to sketchbook
+        run: |
+          set -e
+          SKETCHBOOK_DIR="${HOME}/Arduino"
+          mkdir -p "$SKETCHBOOK_DIR/libraries/ESPJsonDB"
+          rsync -a --delete --exclude ".git" ./ "$SKETCHBOOK_DIR/libraries/ESPJsonDB/"
+
       - name: Build examples (${{ matrix.board.name }})
         env:
           FQBN: ${{ matrix.board.fqbn }}
@@ -86,6 +93,6 @@ jobs:
           for d in examples/*; do
             if [ -d "$d" ]; then
               echo "Compiling $d"
-              arduino-cli compile --fqbn "$FQBN" --libraries . "$d"
+              arduino-cli compile --fqbn "$FQBN" "$d"
             fi
           done
