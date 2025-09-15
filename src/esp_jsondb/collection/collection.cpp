@@ -4,29 +4,56 @@
 #include "../utils/time_utils.h"
 
 Collection::Collection(const std::string &name, const Schema &schema)
-	: _name(name), _schema(schema) {}
+    : _name(name), _schema(schema) {}
+
+DbStatus Collection::checkUniqueFields(JsonObjectConst obj, const std::string &selfId) {
+    // Scan schema for fields marked unique and ensure no other doc has same value
+    for (const auto &f : _schema.fields) {
+        if (!f.unique) continue;
+        // Only enforce on scalar types
+        if (f.type == FieldType::Object || f.type == FieldType::Array) continue;
+        JsonVariantConst v = obj[f.name];
+        if (v.isNull()) continue;
+        for (const auto &kv : _docs) {
+            if (!selfId.empty() && kv.first == selfId) continue;
+            DocView other(kv.second.get(), &_schema);
+            JsonVariantConst ov = other[f.name];
+            if (!ov.isNull() && ov == v) {
+                return dbSetLastError({DbStatusCode::ValidationFailed, "unique constraint violated"});
+            }
+        }
+    }
+    return dbSetLastError({DbStatusCode::Ok, ""});
+}
 
 DbResult<std::string> Collection::create(JsonObjectConst data) {
-	DbResult<std::string> res{};
-	JsonDocument workDoc;
-	workDoc.set(data);
-	JsonObject obj = workDoc.as<JsonObject>();
-	if (_schema.hasValidate()) {
-		auto ve = _schema.runPreSave(obj);
-		if (!ve.valid) {
-			res.status = {DbStatusCode::ValidationFailed, ve.message};
-			dbSetLastError(res.status);
-			return res;
-		}
-	}
-	bool emit = false;
-	{
-		FrLock lk(_mu);
-		auto rec = std::make_unique<DocumentRecord>();
-		rec->meta.createdAt = nowUtcMs();
-		rec->meta.updatedAt = rec->meta.createdAt;
-		rec->meta.id = ObjectId().toHex();
-		rec->meta.dirty = true;
+    DbResult<std::string> res{};
+    JsonDocument workDoc;
+    workDoc.set(data);
+    JsonObject obj = workDoc.as<JsonObject>();
+    if (_schema.hasValidate()) {
+        auto ve = _schema.runPreSave(obj);
+        if (!ve.valid) {
+            res.status = {DbStatusCode::ValidationFailed, ve.message};
+            dbSetLastError(res.status);
+            return res;
+        }
+    }
+    bool emit = false;
+    {
+        FrLock lk(_mu);
+        // Enforce unique constraints before creating the record
+        auto ust = checkUniqueFields(obj, "");
+        if (!ust.ok()) {
+            res.status = ust;
+            dbSetLastError(res.status);
+            return res;
+        }
+        auto rec = std::make_unique<DocumentRecord>();
+        rec->meta.createdAt = nowUtcMs();
+        rec->meta.updatedAt = rec->meta.createdAt;
+        rec->meta.id = ObjectId().toHex();
+        rec->meta.dirty = true;
 
 		// Serialize input data to MsgPack
 		size_t sz = measureMsgPack(obj);
@@ -155,22 +182,28 @@ DbStatus Collection::updateOne(std::function<bool(const DocView &)> pred,
 	{
 		FrLock lk(_mu);
 		// Search existing docs first
-		for (auto &kv : _docs) {
-			DocView v(kv.second.get(), &_schema, nullptr); // use outer lock
-			if (!pred || pred(v)) {
-				mutator(v);
-				if (_schema.hasValidate()) {
-					auto obj = v.asObject();
-					auto ve = _schema.runPreSave(obj);
-					if (!ve.valid) {
-						v.discard();
-						return dbSetLastError({DbStatusCode::ValidationFailed, ve.message});
-					}
-				}
-				st = v.commit();
-				if (!st.ok()) return dbSetLastError(st);
-				// Only flag collection and emit update if record actually changed
-				if (kv.second->meta.dirty) {
+        for (auto &kv : _docs) {
+            DocView v(kv.second.get(), &_schema, nullptr); // use outer lock
+            if (!pred || pred(v)) {
+                mutator(v);
+                if (_schema.hasValidate()) {
+                    auto obj = v.asObject();
+                    auto ve = _schema.runPreSave(obj);
+                    if (!ve.valid) {
+                        v.discard();
+                        return dbSetLastError({DbStatusCode::ValidationFailed, ve.message});
+                    }
+                    // Unique constraints
+                    auto ust = checkUniqueFields(obj, kv.second->meta.id);
+                    if (!ust.ok()) {
+                        v.discard();
+                        return dbSetLastError(ust);
+                    }
+                }
+                st = v.commit();
+                if (!st.ok()) return dbSetLastError(st);
+                // Only flag collection and emit update if record actually changed
+                if (kv.second->meta.dirty) {
 					_dirty = true;
 					updated = true;
 				}
@@ -179,29 +212,35 @@ DbStatus Collection::updateOne(std::function<bool(const DocView &)> pred,
 		}
 
 		// If not found and create requested, create a new record and apply mutator
-		if (!updated && create) {
-			auto rec = std::make_unique<DocumentRecord>();
-			rec->meta.createdAt = nowUtcMs();
-			rec->meta.updatedAt = rec->meta.createdAt;
-			rec->meta.id = ObjectId().toHex();
-			rec->meta.dirty = true;
+        if (!updated && create) {
+            auto rec = std::make_unique<DocumentRecord>();
+            rec->meta.createdAt = nowUtcMs();
+            rec->meta.updatedAt = rec->meta.createdAt;
+            rec->meta.id = ObjectId().toHex();
+            rec->meta.dirty = true;
 
-			DocView v(rec.get(), &_schema, nullptr);
-			// Initialize as empty object then let mutator fill values
-			v.asObject();
-			mutator(v);
-			if (_schema.hasValidate()) {
-				auto obj = v.asObject();
-				auto ve = _schema.runPreSave(obj);
-				if (!ve.valid) {
-					v.discard();
-					return dbSetLastError({DbStatusCode::ValidationFailed, ve.message});
-				}
-			}
-			st = v.commit();
-			if (!st.ok()) return dbSetLastError(st);
-			const std::string id = rec->meta.id;
-			_docs.emplace(id, std::move(rec));
+            DocView v(rec.get(), &_schema, nullptr);
+            // Initialize as empty object then let mutator fill values
+            v.asObject();
+            mutator(v);
+            if (_schema.hasValidate()) {
+                auto obj = v.asObject();
+                auto ve = _schema.runPreSave(obj);
+                if (!ve.valid) {
+                    v.discard();
+                    return dbSetLastError({DbStatusCode::ValidationFailed, ve.message});
+                }
+                // Unique constraints
+                auto ust = checkUniqueFields(obj, rec->meta.id);
+                if (!ust.ok()) {
+                    v.discard();
+                    return dbSetLastError(ust);
+                }
+            }
+            st = v.commit();
+            if (!st.ok()) return dbSetLastError(st);
+            const std::string id = rec->meta.id;
+            _docs.emplace(id, std::move(rec));
 			_dirty = true;
 			created = true;
 			st = {DbStatusCode::Ok, ""};
@@ -223,64 +262,76 @@ DbStatus Collection::updateOne(const JsonDocument &filter,
 	{
 		FrLock lk(_mu);
 		// Look for first matching doc
-		for (auto &kv : _docs) {
-			DocView v(kv.second.get(), &_schema, nullptr);
-			bool match = true;
-			for (auto kvf : filter.as<JsonObjectConst>()) {
-				if (v[kvf.key().c_str()] != kvf.value()) {
-					match = false;
-					break;
-				}
-			}
-			if (match) {
-				for (auto kvp : patch.as<JsonObjectConst>()) {
-					v[kvp.key().c_str()].set(kvp.value());
-				}
-				if (_schema.hasValidate()) {
-					auto obj = v.asObject();
-					auto ve = _schema.runPreSave(obj);
-					if (!ve.valid) {
-						v.discard();
-						return dbSetLastError({DbStatusCode::ValidationFailed, ve.message});
-					}
-				}
-				st = v.commit();
-				if (!st.ok()) return dbSetLastError(st);
-				if (kv.second->meta.dirty) {
-					_dirty = true;
+        for (auto &kv : _docs) {
+            DocView v(kv.second.get(), &_schema, nullptr);
+            bool match = true;
+            for (auto kvf : filter.as<JsonObjectConst>()) {
+                if (v[kvf.key().c_str()] != kvf.value()) {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) {
+                for (auto kvp : patch.as<JsonObjectConst>()) {
+                    v[kvp.key().c_str()].set(kvp.value());
+                }
+                if (_schema.hasValidate()) {
+                    auto obj = v.asObject();
+                    auto ve = _schema.runPreSave(obj);
+                    if (!ve.valid) {
+                        v.discard();
+                        return dbSetLastError({DbStatusCode::ValidationFailed, ve.message});
+                    }
+                    // Unique constraints
+                    auto ust = checkUniqueFields(obj, kv.second->meta.id);
+                    if (!ust.ok()) {
+                        v.discard();
+                        return dbSetLastError(ust);
+                    }
+                }
+                st = v.commit();
+                if (!st.ok()) return dbSetLastError(st);
+                if (kv.second->meta.dirty) {
+                    _dirty = true;
 					updated = true;
 				}
 				break;
 			}
 		}
 
-		if (!updated && create) {
-			// Create a new document merging filter and patch
-			auto rec = std::make_unique<DocumentRecord>();
-			rec->meta.createdAt = nowUtcMs();
-			rec->meta.updatedAt = rec->meta.createdAt;
-			rec->meta.id = ObjectId().toHex();
-			rec->meta.dirty = true;
+        if (!updated && create) {
+            // Create a new document merging filter and patch
+            auto rec = std::make_unique<DocumentRecord>();
+            rec->meta.createdAt = nowUtcMs();
+            rec->meta.updatedAt = rec->meta.createdAt;
+            rec->meta.id = ObjectId().toHex();
+            rec->meta.dirty = true;
 
-			DocView v(rec.get(), &_schema, nullptr);
-			auto obj = v.asObject();
-			for (auto kvf : filter.as<JsonObjectConst>()) {
-				obj[kvf.key().c_str()] = kvf.value();
-			}
-			for (auto kvp : patch.as<JsonObjectConst>()) {
-				obj[kvp.key().c_str()] = kvp.value();
-			}
-			if (_schema.hasValidate()) {
-				auto ve = _schema.runPreSave(obj);
-				if (!ve.valid) {
-					v.discard();
-					return dbSetLastError({DbStatusCode::ValidationFailed, ve.message});
-				}
-			}
-			st = v.commit();
-			if (!st.ok()) return dbSetLastError(st);
-			const std::string id = rec->meta.id;
-			_docs.emplace(id, std::move(rec));
+            DocView v(rec.get(), &_schema, nullptr);
+            auto obj = v.asObject();
+            for (auto kvf : filter.as<JsonObjectConst>()) {
+                obj[kvf.key().c_str()] = kvf.value();
+            }
+            for (auto kvp : patch.as<JsonObjectConst>()) {
+                obj[kvp.key().c_str()] = kvp.value();
+            }
+            if (_schema.hasValidate()) {
+                auto ve = _schema.runPreSave(obj);
+                if (!ve.valid) {
+                    v.discard();
+                    return dbSetLastError({DbStatusCode::ValidationFailed, ve.message});
+                }
+                // Unique constraints
+                auto ust = checkUniqueFields(obj, rec->meta.id);
+                if (!ust.ok()) {
+                    v.discard();
+                    return dbSetLastError(ust);
+                }
+            }
+            st = v.commit();
+            if (!st.ok()) return dbSetLastError(st);
+            const std::string id = rec->meta.id;
+            _docs.emplace(id, std::move(rec));
 			_dirty = true;
 			created = true;
 			st = {DbStatusCode::Ok, ""};
@@ -296,28 +347,34 @@ DbStatus Collection::updateOne(const JsonDocument &filter,
 DbStatus Collection::updateById(const std::string &id, std::function<void(DocView &)> mutator) {
 	bool updated = false;
 	DbStatus st{DbStatusCode::Ok, ""};
-	{
-		FrLock lk(_mu);
-		auto it = _docs.find(id);
-		if (it == _docs.end()) {
-			return dbSetLastError({DbStatusCode::NotFound, "document not found"});
-		}
-		DocView v(it->second.get(), &_schema, nullptr); // using outer lock
-		mutator(v);
-		if (_schema.hasValidate()) {
-			auto obj = v.asObject();
-			auto ve = _schema.runPreSave(obj);
-			if (!ve.valid) {
-				v.discard();
-				return dbSetLastError({DbStatusCode::ValidationFailed, ve.message});
-			}
-		}
-		st = v.commit();
-		if (!st.ok()) return dbSetLastError(st);
-		if (it->second->meta.dirty) {
-			_dirty = true;
-			updated = true;
-		}
+    {
+        FrLock lk(_mu);
+        auto it = _docs.find(id);
+        if (it == _docs.end()) {
+            return dbSetLastError({DbStatusCode::NotFound, "document not found"});
+        }
+        DocView v(it->second.get(), &_schema, nullptr); // using outer lock
+        mutator(v);
+        if (_schema.hasValidate()) {
+            auto obj = v.asObject();
+            auto ve = _schema.runPreSave(obj);
+            if (!ve.valid) {
+                v.discard();
+                return dbSetLastError({DbStatusCode::ValidationFailed, ve.message});
+            }
+            // Unique constraints
+            auto ust = checkUniqueFields(obj, it->second->meta.id);
+            if (!ust.ok()) {
+                v.discard();
+                return dbSetLastError(ust);
+            }
+        }
+        st = v.commit();
+        if (!st.ok()) return dbSetLastError(st);
+        if (it->second->meta.dirty) {
+            _dirty = true;
+            updated = true;
+        }
 	}
 	if (updated) db.emitEvent(DBEventType::DocumentUpdated);
 	return dbSetLastError(st);

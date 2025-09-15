@@ -68,6 +68,7 @@ Ready-to-run sketches are available in the `examples` directory:
 - `Collections` - create and drop collections
 - `BulkOperations` - batch inserts, updates, and queries
 - `SchemaValidation` - register schemas and validate documents
+- `UniqueFields` - enforce unique fields in a schema
 - `References` - store and populate document references
 
 ## Quick start
@@ -282,6 +283,30 @@ userSchema.validate = usersValidate;
 
 db.registerSchema("users", userSchema);
 ```
+
+### Unique fields
+You can enforce per-collection uniqueness on specific fields by marking them as `unique` in the schema. Uniqueness is enforced on create, `updateOne`, `updateById`, and `updateMany`. It applies to scalar field types (`String`, `Int`, `Float`, `Bool`).
+
+Declare a unique field by setting the fourth member in `SchemaField`:
+```cpp
+Schema userSchema;
+userSchema.fields = {
+  // name,        type,                defaultValue, unique
+  {"email",      FieldType::String,   nullptr,      true},   // email must be unique in the collection
+  {"username",   FieldType::String,   nullptr,      true},   // also unique (optional)
+  {"role",       FieldType::String,   "user"},              // not unique (default)
+  {"age",        FieldType::Int}
+};
+db.registerSchema("users", userSchema);
+```
+
+Behavior:
+- If another document already has the same value, the operation fails with `DbStatusCode::ValidationFailed` and message `"unique constraint violated"`.
+- During updates, the current document is excluded from the duplicate check (so re-saving the same value is allowed).
+- Arrays/objects are not checked for uniqueness.
+- Snapshot restore writes files directly and does not run validators or uniqueness checks.
+
+See a full sketch in `examples/UniqueFields/UniqueFields.ino`.
 
 ## Timestamps (createdAt / updatedAt)
 

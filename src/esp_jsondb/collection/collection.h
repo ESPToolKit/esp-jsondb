@@ -103,6 +103,8 @@ class Collection {
 
 	DbStatus writeDocToFile(const std::string &baseDir, const DocumentRecord &r);
 	DbResult<std::unique_ptr<DocumentRecord>> readDocFromFile(const std::string &baseDir, const std::string &id);
+    // Enforce unique constraints declared in schema fields; excludes selfId when provided
+    DbStatus checkUniqueFields(JsonObjectConst obj, const std::string &selfId);
 };
 
 template <typename Pred>
@@ -135,18 +137,24 @@ DbResult<size_t> Collection::updateMany(Pred &&p, Mut &&m) {
 		DocView v(kv.second.get(), &_schema);
 		if (p(v)) {
 			m(v);
-			if (_schema.hasValidate()) {
-				auto obj = v.asObject();
-				auto ve = _schema.runPreSave(obj);
-				if (!ve.valid) {
-					v.discard();
-					continue;
+				if (_schema.hasValidate()) {
+					auto obj = v.asObject();
+					auto ve = _schema.runPreSave(obj);
+					if (!ve.valid) {
+						v.discard();
+						continue;
+					}
+                // Unique constraints
+                auto ust = checkUniqueFields(obj, kv.second->meta.id);
+                if (!ust.ok()) {
+                    v.discard();
+                    continue;
+                }
 				}
-			}
-			auto st = v.commit();
-			if (st.ok()) {
-				++count;
-			}
+				auto st = v.commit();
+				if (st.ok()) {
+					++count;
+				}
 		}
 	}
 	if (count) _dirty = true;
@@ -170,6 +178,12 @@ DbResult<size_t> Collection::updateMany(Mut &&m) {
 					v.discard();
 					continue;
 				}
+                // Unique constraints
+                auto ust = checkUniqueFields(obj, kv.second->meta.id);
+                if (!ust.ok()) {
+                    v.discard();
+                    continue;
+                }
 			}
 			auto st = v.commit();
 			if (st.ok()) {

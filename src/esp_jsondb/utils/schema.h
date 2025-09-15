@@ -31,7 +31,8 @@ enum class FieldType {
 struct SchemaField {
 	const char *name;
 	FieldType type;
-	const char *defaultValue;
+	const char *defaultValue = nullptr;
+	bool unique = false; // enforce per-collection uniqueness when true
 };
 
 struct Schema {

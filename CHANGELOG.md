@@ -7,6 +7,13 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 ## [Unreleased]
 - Add more examples and ESP-IDF component packaging.
 - Improve docs site and troubleshooting guides.
+### Added
+- SchemaField: `bool unique` flag (default `false`) to enforce per-collection uniqueness for scalar fields.
+- New example: `examples/UniqueFields` demonstrating unique constraints on create and update.
+### Changed
+- Enforce unique constraints during `create`, `updateOne` (both overloads), `updateById`, and `updateMany`.
+  Violations return `DbStatusCode::ValidationFailed` with message `"unique constraint violated"`.
+  Unique checks skip arrays/objects and exclude the current document on updates.
 
 ## [1.0.1] - 2025-09-15
 ### Fixed
