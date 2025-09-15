@@ -36,7 +36,6 @@ jobs:
       - name: Build library examples (ESP32 Arduino)
         run: |
           set -e
-          pio pkg update
           for d in examples/*; do
             if [ -d "$d" ]; then
               echo "Building $d on ${{ matrix.board }} via PlatformIO CI"
