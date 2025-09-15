@@ -38,7 +38,7 @@ jobs:
       - name: Install libraries
         run: |
           arduino-cli lib update-index
-          arduino-cli lib install "ArduinoJson" "StreamUtils"
+          arduino-cli lib install "ArduinoJson" "ArduinoStreamUtils"
 
       - name: Build and collect example binaries
         env:
