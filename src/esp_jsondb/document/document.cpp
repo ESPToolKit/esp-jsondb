@@ -16,6 +16,11 @@ DbStatus DocView::decode() {
 	if (_mu) guard = std::make_unique<FrLock>(*_mu);
 	if (_doc) return dbSetLastError({DbStatusCode::Ok, ""});
 	_doc = std::make_unique<JsonDocument>();
+	// If there is no backing record (e.g., NotFound), treat as empty object
+	if (_rec == nullptr) {
+		_doc->to<JsonObject>();
+		return dbSetLastError({DbStatusCode::Ok, ""});
+	}
 	DeserializationError err = DeserializationError::Ok;
 	if (_rec->msgpack.empty()) {
 		// Start with empty object
@@ -35,12 +40,13 @@ DbStatus DocView::decode() {
 }
 
 DbStatus DocView::encode() {
-	std::unique_ptr<FrLock> guard;
-	if (_mu) guard = std::make_unique<FrLock>(*_mu);
-	if (!_doc) return dbSetLastError({DbStatusCode::InvalidArgument, "no decoded doc"});
-	// measure and serialize to vector buffer
-	size_t sz = measureMsgPack(_doc->as<JsonVariantConst>());
-	_rec->msgpack.resize(sz);
+    std::unique_ptr<FrLock> guard;
+    if (_mu) guard = std::make_unique<FrLock>(*_mu);
+    if (!_doc) return dbSetLastError({DbStatusCode::InvalidArgument, "no decoded doc"});
+    if (_rec == nullptr) return dbSetLastError({DbStatusCode::InvalidArgument, "no backing record"});
+    // measure and serialize to vector buffer
+    size_t sz = measureMsgPack(_doc->as<JsonVariantConst>());
+    _rec->msgpack.resize(sz);
 	size_t written = serializeMsgPack(_doc->as<JsonVariantConst>(), _rec->msgpack.data(), _rec->msgpack.size());
 	if (written != sz) {
 		return dbSetLastError({DbStatusCode::IoError, "serialize msgpack size mismatch"});

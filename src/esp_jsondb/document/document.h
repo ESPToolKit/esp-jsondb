@@ -73,7 +73,10 @@ class DocView {
 	DbStatus commit(); // serialize -> msgpack, set dirty+updatedAt
 	void discard();	   // drop changes, keep msgpack
 
-	const DocumentMeta &meta() const { return _rec->meta; }
+	const DocumentMeta &meta() const {
+		static const DocumentMeta kEmptyMeta{};
+		return _rec ? _rec->meta : kEmptyMeta;
+	}
 
   private:
 	DocumentRecord *_rec = nullptr;
