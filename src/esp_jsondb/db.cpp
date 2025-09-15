@@ -55,7 +55,7 @@ DbStatus DataBase::registerSchema(const std::string &name, const Schema &s) {
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
-DbStatus DataBase::unRegisterSchema(const std::string &name){
+DbStatus DataBase::unRegisterSchema(const std::string &name) {
 	FrLock lk(_mu);
 	_schemas.erase(name);
 	return setLastError({DbStatusCode::Ok, ""});
@@ -138,43 +138,52 @@ DbResult<Collection *> DataBase::collection(const std::string &name) {
 	return res;
 }
 
+// Arduino-friendly overload
+DbResult<Collection *> DataBase::collection(const String &name) {
+	return collection(std::string{name.c_str()});
+}
+
+DbResult<Collection *> DataBase::collection(const char *name) {
+	return collection(std::string{name ? name : ""});
+}
+
 DbResult<std::string> DataBase::create(const std::string &name, JsonObjectConst doc) {
-    DbResult<std::string> res{};
-    auto cr = collection(name);
-    if (!cr.status.ok()) {
-        res.status = cr.status;
-        return res;
-    }
-    return cr.value->create(doc);
+	DbResult<std::string> res{};
+	auto cr = collection(name);
+	if (!cr.status.ok()) {
+		res.status = cr.status;
+		return res;
+	}
+	return cr.value->create(doc);
 }
 
 DbResult<std::string> DataBase::create(const std::string &name, const JsonDocument &doc) {
-    // Ensure the provided document is a JSON object (not an array/scalar)
-    if (!doc.is<JsonObject>()) {
-        DbResult<std::string> res{};
-        res.status = setLastError({DbStatusCode::InvalidArgument, "document must be an object"});
-        return res;
-    }
-    return create(name, doc.as<JsonObjectConst>());
+	// Ensure the provided document is a JSON object (not an array/scalar)
+	if (!doc.is<JsonObject>()) {
+		DbResult<std::string> res{};
+		res.status = setLastError({DbStatusCode::InvalidArgument, "document must be an object"});
+		return res;
+	}
+	return create(name, doc.as<JsonObjectConst>());
 }
 
 DbResult<std::vector<std::string>> DataBase::createMany(const std::string &name, JsonArrayConst arr) {
-    DbResult<std::vector<std::string>> res{};
-    auto cr = collection(name);
-    if (!cr.status.ok()) {
-        res.status = cr.status;
-        return res;
-    }
-    return cr.value->createMany(arr);
+	DbResult<std::vector<std::string>> res{};
+	auto cr = collection(name);
+	if (!cr.status.ok()) {
+		res.status = cr.status;
+		return res;
+	}
+	return cr.value->createMany(arr);
 }
 
 DbResult<std::vector<std::string>> DataBase::createMany(const std::string &name, const JsonDocument &arrDoc) {
-    if (!arrDoc.is<JsonArray>()) {
-        DbResult<std::vector<std::string>> res{};
-        res.status = setLastError({DbStatusCode::InvalidArgument, "document must be an array of objects"});
-        return res;
-    }
-    return createMany(name, arrDoc.as<JsonArrayConst>());
+	if (!arrDoc.is<JsonArray>()) {
+		DbResult<std::vector<std::string>> res{};
+		res.status = setLastError({DbStatusCode::InvalidArgument, "document must be an array of objects"});
+		return res;
+	}
+	return createMany(name, arrDoc.as<JsonArrayConst>());
 }
 
 DbResult<DocView> DataBase::findById(const std::string &name, const std::string &id) {
@@ -216,9 +225,9 @@ DbResult<DocView> DataBase::findOne(const std::string &name, const JsonDocument 
 }
 
 DbStatus DataBase::updateOne(const std::string &name,
-							  std::function<bool(const DocView &)> pred,
-							  std::function<void(DocView &)> mutator,
-							  bool create) {
+							 std::function<bool(const DocView &)> pred,
+							 std::function<void(DocView &)> mutator,
+							 bool create) {
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
 		return cr.status;
@@ -227,9 +236,9 @@ DbStatus DataBase::updateOne(const std::string &name,
 }
 
 DbStatus DataBase::updateOne(const std::string &name,
-							  const JsonDocument &filter,
-							  const JsonDocument &patch,
-							  bool create) {
+							 const JsonDocument &filter,
+							 const JsonDocument &patch,
+							 bool create) {
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
 		return cr.status;

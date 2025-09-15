@@ -46,6 +46,9 @@ class DataBase {
 
 	// Creates collection if missing
 	DbResult<Collection *> collection(const std::string &name);
+	// Arduino-friendly overload
+	DbResult<Collection *> collection(const String &name);
+	DbResult<Collection *> collection(const char *name);
 
 	// Convenience: create a document in the given collection
 	DbResult<std::string> create(const std::string &collectionName, JsonObjectConst doc);
@@ -72,15 +75,15 @@ class DataBase {
 
 	// Convenience: update the first match (predicate + mutator). If create=true, creates new when none found
 	DbStatus updateOne(const std::string &collectionName,
-					  std::function<bool(const DocView &)> pred,
-					  std::function<void(DocView &)> mutator,
-					  bool create = false);
+					   std::function<bool(const DocView &)> pred,
+					   std::function<void(DocView &)> mutator,
+					   bool create = false);
 
 	// Convenience: update the first match (JSON filter + JSON patch). If create=true, creates new when none found
 	DbStatus updateOne(const std::string &collectionName,
-					  const JsonDocument &filter,
-					  const JsonDocument &patch,
-					  bool create = false);
+					   const JsonDocument &filter,
+					   const JsonDocument &patch,
+					   bool create = false);
 
 	// Convenience: update a document by _id in the given collection
 	DbStatus updateById(const std::string &collectionName, const std::string &id, std::function<void(DocView &)> mutator);
