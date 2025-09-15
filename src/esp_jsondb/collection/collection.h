@@ -27,6 +27,13 @@ class Collection {
 	// Create from JsonObjectConst (validated)
 	DbResult<std::string> create(JsonObjectConst data); // returns new _id
 
+	// Convenience: create from JsonDocument; validates it's an object
+	DbResult<std::string> create(const JsonDocument &data);
+
+	// Bulk create from an array of objects. Returns list of created ids.
+	DbResult<std::vector<std::string>> createMany(JsonArrayConst arr);
+	DbResult<std::vector<std::string>> createMany(const JsonDocument &arrDoc);
+
 	// Find
 	DbResult<DocView> findById(const std::string &id);
 

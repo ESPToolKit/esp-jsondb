@@ -51,6 +51,47 @@ DbResult<std::string> Collection::create(JsonObjectConst data) {
 	return res;
 }
 
+DbResult<std::string> Collection::create(const JsonDocument &data) {
+    // Ensure provided document is an object
+    if (!data.is<JsonObject>()) {
+        DbResult<std::string> res{};
+        res.status = dbSetLastError({DbStatusCode::InvalidArgument, "document must be an object"});
+        return res;
+    }
+    return create(data.as<JsonObjectConst>());
+}
+
+DbResult<std::vector<std::string>> Collection::createMany(JsonArrayConst arr) {
+    DbResult<std::vector<std::string>> res{};
+    std::vector<std::string> ids;
+    ids.reserve(arr.size());
+
+    for (auto v : arr) {
+        if (!v.is<JsonObjectConst>()) {
+            // Skip non-object entries
+            continue;
+        }
+        auto cr = create(v.as<JsonObjectConst>());
+        if (cr.status.ok()) {
+            ids.push_back(cr.value);
+        }
+    }
+
+    res.status = {DbStatusCode::Ok, ""};
+    dbSetLastError(res.status);
+    res.value = std::move(ids);
+    return res;
+}
+
+DbResult<std::vector<std::string>> Collection::createMany(const JsonDocument &arrDoc) {
+    if (!arrDoc.is<JsonArray>()) {
+        DbResult<std::vector<std::string>> res{};
+        res.status = dbSetLastError({DbStatusCode::InvalidArgument, "document must be an array of objects"});
+        return res;
+    }
+    return createMany(arrDoc.as<JsonArrayConst>());
+}
+
 DbResult<DocView> Collection::findById(const std::string &id) {
 	FrLock lk(_mu);
 	auto it = _docs.find(id);

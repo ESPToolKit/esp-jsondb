@@ -129,13 +129,42 @@ DbResult<Collection *> DataBase::collection(const std::string &name) {
 }
 
 DbResult<std::string> DataBase::create(const std::string &name, JsonObjectConst doc) {
-	DbResult<std::string> res{};
-	auto cr = collection(name);
-	if (!cr.status.ok()) {
-		res.status = cr.status;
-		return res;
-	}
-	return cr.value->create(doc);
+    DbResult<std::string> res{};
+    auto cr = collection(name);
+    if (!cr.status.ok()) {
+        res.status = cr.status;
+        return res;
+    }
+    return cr.value->create(doc);
+}
+
+DbResult<std::string> DataBase::create(const std::string &name, const JsonDocument &doc) {
+    // Ensure the provided document is a JSON object (not an array/scalar)
+    if (!doc.is<JsonObject>()) {
+        DbResult<std::string> res{};
+        res.status = setLastError({DbStatusCode::InvalidArgument, "document must be an object"});
+        return res;
+    }
+    return create(name, doc.as<JsonObjectConst>());
+}
+
+DbResult<std::vector<std::string>> DataBase::createMany(const std::string &name, JsonArrayConst arr) {
+    DbResult<std::vector<std::string>> res{};
+    auto cr = collection(name);
+    if (!cr.status.ok()) {
+        res.status = cr.status;
+        return res;
+    }
+    return cr.value->createMany(arr);
+}
+
+DbResult<std::vector<std::string>> DataBase::createMany(const std::string &name, const JsonDocument &arrDoc) {
+    if (!arrDoc.is<JsonArray>()) {
+        DbResult<std::vector<std::string>> res{};
+        res.status = setLastError({DbStatusCode::InvalidArgument, "document must be an array of objects"});
+        return res;
+    }
+    return createMany(name, arrDoc.as<JsonArrayConst>());
 }
 
 DbResult<DocView> DataBase::findById(const std::string &name, const std::string &id) {

@@ -50,6 +50,13 @@ class DataBase {
 	// Convenience: create a document in the given collection
 	DbResult<std::string> create(const std::string &collectionName, JsonObjectConst doc);
 
+	// Convenience: create from a JsonDocument; validates it's an object
+	DbResult<std::string> create(const std::string &collectionName, const JsonDocument &doc);
+
+	// Convenience: bulk create documents in a collection
+	DbResult<std::vector<std::string>> createMany(const std::string &collectionName, JsonArrayConst arr);
+	DbResult<std::vector<std::string>> createMany(const std::string &collectionName, const JsonDocument &arrDoc);
+
 	// Convenience: find a document by _id in the given collection
 	DbResult<DocView> findById(const std::string &collectionName, const std::string &id);
 

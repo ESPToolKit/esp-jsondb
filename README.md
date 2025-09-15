@@ -69,6 +69,14 @@ if (createRes.status.ok()) {
 }
 ```
 
+You can also pass a `JsonDocument` directly; it must be an object:
+```cpp
+JsonDocument userDoc2;
+userDoc2["email"] = "second@example.com";
+userDoc2["username"] = "second-user";
+auto createRes2 = db.create("users", userDoc2); // validated: must be an object
+```
+
 Add several documents and delete those matching a predicate:
 ```cpp
 for (int i = 0; i < 10; ++i) {
@@ -82,6 +90,40 @@ auto removed = db.removeMany("users", [](const DocView &doc){
     return doc["role"].as<std::string>() == "admin";
 });
 Serial.printf("Removed %d admins\n", removed.value);
+```
+
+Bulk insert with Collection::createMany:
+```cpp
+auto colRes = db.collection("users");
+if (colRes.status.ok()) {
+    JsonDocument batch;
+    JsonArray arr = batch.to<JsonArray>();
+
+    JsonObject u1 = arr.add<JsonObject>();
+    u1["email"] = "user1@example.com";
+    u1["role"] = "user";
+
+    JsonObject u2 = arr.add<JsonObject>();
+    u2["email"] = "user2@example.com";
+    u2["role"] = "admin";
+
+    auto many = colRes.value->createMany(batch); // validates: must be an array of objects
+    // many.value is a vector<string> of created _id values
+}
+```
+
+Or do it via the database directly:
+```cpp
+JsonDocument batch2;
+JsonArray arr2 = batch2.to<JsonArray>();
+JsonObject u3 = arr2.add<JsonObject>();
+u3["email"] = "user3@example.com";
+u3["role"] = "user";
+JsonObject u4 = arr2.add<JsonObject>();
+u4["email"] = "user4@example.com";
+u4["role"] = "admin";
+
+auto many2 = db.createMany("users", batch2); // returns vector of _id
 ```
 
 ## Bulk updates and searches
