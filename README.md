@@ -36,6 +36,8 @@ void setup() {
     syncCfg.intervalMs = 3000;  // autosync every 3s
     syncCfg.autosync = true;
 
+    // baseDir is normalized to start with '/' and no trailing '/'
+    // e.g. "test_db" becomes "/test_db"
     if (!db.init("/test_db", syncCfg).ok()) {
         Serial.println("DB init failed");
         return;
@@ -49,6 +51,10 @@ void setup() {
     });
 }
 ```
+
+## Common pitfalls
+- baseDir must be a valid LittleFS path. The library now normalizes it, but if you pass a relative path like `"db"`, it becomes `"/db"` internally.
+- If you saw "mkdir baseDir failed", it was likely due to a relative `baseDir` without a leading `/`. This is handled automatically now.
 
 ## Working with documents
 Create and remove documents inside a collection:

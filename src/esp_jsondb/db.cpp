@@ -22,6 +22,16 @@ DataBase::~DataBase() {
 
 DbStatus DataBase::init(const char *baseDir, const SyncConfig &cfg) {
 	_baseDir = baseDir ? baseDir : std::string("/db");
+	// Normalize baseDir: ensure leading '/', drop trailing '/'
+	if (_baseDir.empty()) {
+		_baseDir = "/db";
+	}
+	if (_baseDir.front() != '/') {
+		_baseDir.insert(_baseDir.begin(), '/');
+	}
+	if (_baseDir.size() > 1 && _baseDir.back() == '/') {
+		_baseDir.pop_back();
+	}
 	_cfg = cfg;
 	auto st = ensureFsReady();
 	if (!st.ok()) return st;
