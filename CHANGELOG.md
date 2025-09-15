@@ -8,6 +8,14 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 - Add more examples and ESP-IDF component packaging.
 - Improve docs site and troubleshooting guides.
 
+## [1.0.1] - 2025-09-15
+### Fixed
+- Ensure C++17 is used in CI for PlatformIO to support `enable_if_t`, `is_same_v`, and `make_unique`.
+- Add `DbStatus` convenience constructor to allow brace-style initialization/assignment.
+- Add Arduino `String`/`const char*` overloads for `DataBase::collection()` to match example usage.
+- Update examples to include `<ESPJsonDB.h>` for reliable Arduino CLI discovery.
+- Adjust Arduino CLI workflow to stage the library into the sketchbook and fix `StreamUtils` name.
+
 ## [1.0.0] - 2025-09-15
 ### Added
 - Initial public release of ESPJsonDB, a lightweight JSON document database for ESP32.
@@ -22,6 +30,6 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 - Arduino library metadata (`library.properties`) and PlatformIO metadata (`library.json`).
 - CI workflow to build examples across multiple ESP32 boards.
 
-[Unreleased]: https://github.com/esp-jsondb/esp-jsondb/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/esp-jsondb/esp-jsondb/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/esp-jsondb/esp-jsondb/releases/tag/v1.0.1
 [1.0.0]: https://github.com/esp-jsondb/esp-jsondb/releases/tag/v1.0.0
-
