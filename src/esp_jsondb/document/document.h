@@ -70,7 +70,7 @@ class DocView {
 	DocView populate(const char *field, uint8_t maxDepth = 4) const;
 
 	// persist changes back to record (MsgPack)
-	DbStatus commit(); // serialize -> msgpack, set dirty+updatedAt
+	DbStatus commit(); // serialize -> msgpack; set dirty+updatedAt only if bytes changed
 	void discard();	   // drop changes, keep msgpack
 
 	const DocumentMeta &meta() const {

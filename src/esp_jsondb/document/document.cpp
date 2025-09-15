@@ -39,14 +39,56 @@ DbStatus DocView::decode() {
 	return dbSetLastError({DbStatusCode::Ok, ""});
 }
 
+namespace {
+struct CompareToBufferPrint : public Print {
+	const uint8_t *ref;
+	size_t size;
+	size_t index;
+	bool equal;
+	CompareToBufferPrint(const uint8_t *r, size_t s) : ref(r), size(s), index(0), equal(true) {}
+	size_t write(uint8_t b) override {
+		if (index >= size) {
+			equal = false;
+			++index; // still advance to reflect extra bytes
+			return 1;
+		}
+		if (ref[index] != b) equal = false;
+		++index;
+		return 1;
+	}
+	size_t write(const uint8_t *buffer, size_t len) override {
+		for (size_t i = 0; i < len; ++i)
+			write(buffer[i]);
+		return len;
+	}
+};
+} // namespace
+
 DbStatus DocView::encode() {
-    std::unique_ptr<FrLock> guard;
-    if (_mu) guard = std::make_unique<FrLock>(*_mu);
-    if (!_doc) return dbSetLastError({DbStatusCode::InvalidArgument, "no decoded doc"});
-    if (_rec == nullptr) return dbSetLastError({DbStatusCode::InvalidArgument, "no backing record"});
-    // measure and serialize to vector buffer
-    size_t sz = measureMsgPack(_doc->as<JsonVariantConst>());
-    _rec->msgpack.resize(sz);
+	std::unique_ptr<FrLock> guard;
+	if (_mu) guard = std::make_unique<FrLock>(*_mu);
+	if (!_doc) return dbSetLastError({DbStatusCode::InvalidArgument, "no decoded doc"});
+	if (_rec == nullptr) return dbSetLastError({DbStatusCode::InvalidArgument, "no backing record"});
+
+	// First, measure the size of the new serialization
+	size_t sz = measureMsgPack(_doc->as<JsonVariantConst>());
+
+	// If sizes match, stream-compare bytes without allocating
+	if (sz == _rec->msgpack.size()) {
+		CompareToBufferPrint cmp(_rec->msgpack.data(), _rec->msgpack.size());
+		size_t written = serializeMsgPack(_doc->as<JsonVariantConst>(), cmp);
+		if (written != sz) {
+			return dbSetLastError({DbStatusCode::IoError, "serialize msgpack size mismatch"});
+		}
+		if (cmp.equal) {
+			_dirtyLocally = false;
+			return dbSetLastError({DbStatusCode::Ok, ""});
+		}
+		// else: fall through to write new bytes
+	}
+
+	// Allocate and write new bytes
+	_rec->msgpack.resize(sz);
 	size_t written = serializeMsgPack(_doc->as<JsonVariantConst>(), _rec->msgpack.data(), _rec->msgpack.size());
 	if (written != sz) {
 		return dbSetLastError({DbStatusCode::IoError, "serialize msgpack size mismatch"});

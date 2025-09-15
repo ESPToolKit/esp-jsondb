@@ -52,44 +52,44 @@ DbResult<std::string> Collection::create(JsonObjectConst data) {
 }
 
 DbResult<std::string> Collection::create(const JsonDocument &data) {
-    // Ensure provided document is an object
-    if (!data.is<JsonObject>()) {
-        DbResult<std::string> res{};
-        res.status = dbSetLastError({DbStatusCode::InvalidArgument, "document must be an object"});
-        return res;
-    }
-    return create(data.as<JsonObjectConst>());
+	// Ensure provided document is an object
+	if (!data.is<JsonObject>()) {
+		DbResult<std::string> res{};
+		res.status = dbSetLastError({DbStatusCode::InvalidArgument, "document must be an object"});
+		return res;
+	}
+	return create(data.as<JsonObjectConst>());
 }
 
 DbResult<std::vector<std::string>> Collection::createMany(JsonArrayConst arr) {
-    DbResult<std::vector<std::string>> res{};
-    std::vector<std::string> ids;
-    ids.reserve(arr.size());
+	DbResult<std::vector<std::string>> res{};
+	std::vector<std::string> ids;
+	ids.reserve(arr.size());
 
-    for (auto v : arr) {
-        if (!v.is<JsonObjectConst>()) {
-            // Skip non-object entries
-            continue;
-        }
-        auto cr = create(v.as<JsonObjectConst>());
-        if (cr.status.ok()) {
-            ids.push_back(cr.value);
-        }
-    }
+	for (auto v : arr) {
+		if (!v.is<JsonObjectConst>()) {
+			// Skip non-object entries
+			continue;
+		}
+		auto cr = create(v.as<JsonObjectConst>());
+		if (cr.status.ok()) {
+			ids.push_back(cr.value);
+		}
+	}
 
-    res.status = {DbStatusCode::Ok, ""};
-    dbSetLastError(res.status);
-    res.value = std::move(ids);
-    return res;
+	res.status = {DbStatusCode::Ok, ""};
+	dbSetLastError(res.status);
+	res.value = std::move(ids);
+	return res;
 }
 
 DbResult<std::vector<std::string>> Collection::createMany(const JsonDocument &arrDoc) {
-    if (!arrDoc.is<JsonArray>()) {
-        DbResult<std::vector<std::string>> res{};
-        res.status = dbSetLastError({DbStatusCode::InvalidArgument, "document must be an array of objects"});
-        return res;
-    }
-    return createMany(arrDoc.as<JsonArrayConst>());
+	if (!arrDoc.is<JsonArray>()) {
+		DbResult<std::vector<std::string>> res{};
+		res.status = dbSetLastError({DbStatusCode::InvalidArgument, "document must be an array of objects"});
+		return res;
+	}
+	return createMany(arrDoc.as<JsonArrayConst>());
 }
 
 DbResult<DocView> Collection::findById(const std::string &id) {
@@ -169,8 +169,11 @@ DbStatus Collection::updateOne(std::function<bool(const DocView &)> pred,
 				}
 				st = v.commit();
 				if (!st.ok()) return dbSetLastError(st);
-				_dirty = true;
-				updated = true;
+				// Only flag collection and emit update if record actually changed
+				if (kv.second->meta.dirty) {
+					_dirty = true;
+					updated = true;
+				}
 				break;
 			}
 		}
@@ -204,8 +207,10 @@ DbStatus Collection::updateOne(std::function<bool(const DocView &)> pred,
 			st = {DbStatusCode::Ok, ""};
 		}
 	}
-	if (created) db.emitEvent(DBEventType::DocumentCreated);
-	else if (updated) db.emitEvent(DBEventType::DocumentUpdated);
+	if (created)
+		db.emitEvent(DBEventType::DocumentCreated);
+	else if (updated)
+		db.emitEvent(DBEventType::DocumentUpdated);
 	return dbSetLastError(st);
 }
 
@@ -241,8 +246,10 @@ DbStatus Collection::updateOne(const JsonDocument &filter,
 				}
 				st = v.commit();
 				if (!st.ok()) return dbSetLastError(st);
-				_dirty = true;
-				updated = true;
+				if (kv.second->meta.dirty) {
+					_dirty = true;
+					updated = true;
+				}
 				break;
 			}
 		}
@@ -279,8 +286,10 @@ DbStatus Collection::updateOne(const JsonDocument &filter,
 			st = {DbStatusCode::Ok, ""};
 		}
 	}
-	if (created) db.emitEvent(DBEventType::DocumentCreated);
-	else if (updated) db.emitEvent(DBEventType::DocumentUpdated);
+	if (created)
+		db.emitEvent(DBEventType::DocumentCreated);
+	else if (updated)
+		db.emitEvent(DBEventType::DocumentUpdated);
 	return dbSetLastError(st);
 }
 
@@ -305,8 +314,10 @@ DbStatus Collection::updateById(const std::string &id, std::function<void(DocVie
 		}
 		st = v.commit();
 		if (!st.ok()) return dbSetLastError(st);
-		_dirty = true;
-		updated = true;
+		if (it->second->meta.dirty) {
+			_dirty = true;
+			updated = true;
+		}
 	}
 	if (updated) db.emitEvent(DBEventType::DocumentUpdated);
 	return dbSetLastError(st);
