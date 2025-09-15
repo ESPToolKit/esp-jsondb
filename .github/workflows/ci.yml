@@ -39,9 +39,7 @@ jobs:
           for d in examples/*; do
             if [ -d "$d" ]; then
               echo "Building $d on ${{ matrix.board }} via PlatformIO CI"
-              pio ci "$d" --board ${{ matrix.board }} \
-                --lib="." \
-                --lib="https://github.com/bblanchon/ArduinoStreamUtils"
+              pio ci "$d" --board ${{ matrix.board }} --lib="."
             fi
           done
 
