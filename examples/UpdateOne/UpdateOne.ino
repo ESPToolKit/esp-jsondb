@@ -24,11 +24,11 @@ void setup() {
     auto st1 = db.updateOne(
         "users",
         [&](const DocView &v) {
-            return v["email"] == seed["email"]; // match by email
+            return v["email"].as<std::string>() == std::string("user@example.com"); // match by email
         },
         [&](DocView &v) {
             int visits = v["visits"].as<int>();
-            v["visits"] = visits + 1;
+            v["visits"].set(visits + 1);
         }
     );
     Serial.printf("updateOne (predicate/mutator): %s\n", st1.ok() ? "OK" : st1.message);
@@ -46,7 +46,7 @@ void setup() {
     Serial.printf("updateOne (filter/patch upsert): %s\n", st2.ok() ? "OK" : st2.message);
 
     // Verify results
-    auto foundExisting = db.findOne("users", [&](const DocView &v){ return v["email"] == "user@example.com"; });
+    auto foundExisting = db.findOne("users", [&](const DocView &v){ return v["email"].as<std::string>() == std::string("user@example.com"); });
     if (foundExisting.status.ok()) {
         Serial.printf("Existing visits: %d\n", foundExisting.value["visits"].as<int>());
     }
@@ -60,4 +60,3 @@ void setup() {
 }
 
 void loop() {}
-
