@@ -258,6 +258,39 @@ The database itself does not manage or verify time synchronization.
 ## Diagnostics & Sync
 Call `db.getDiag()` to obtain collection/document counts and the active sync config. Use `syncNow()` for manual flushes when autosync is disabled.
 
+## Dirty Tracking and Change Detection
+- On edits, documents are re‑serialized to MessagePack. The library compares the new bytes against the in‑memory version before marking a document dirty.
+- If bytes are identical: it does not set `dirty`, does not bump `updatedAt`, and no `DocumentUpdated` event is emitted. This avoids unnecessary filesystem writes during sync.
+- If bytes differ: it updates the record buffer, sets `dirty = true`, updates `updatedAt`, and the collection becomes dirty for the next sync.
+- The comparison is streaming and memory‑efficient; it does not allocate a second buffer for unchanged documents.
+
+Example (no‑op update does nothing):
+```cpp
+// Create a document
+JsonDocument user;
+user["email"] = "noop@example.com";
+user["role"] = "admin";
+auto created = db.create("users", user.as<JsonObjectConst>());
+
+// Capture updatedAt
+auto before = db.findById("users", created.value);
+uint32_t t0 = before.value.meta().updatedAt;
+
+// Attempt a no-op update (set the same value)
+db.updateById("users", created.value, [](DocView &doc){
+    doc["role"].set("admin"); // same as before
+});
+
+// Re-read and compare updatedAt — unchanged means no write/event was triggered
+auto after = db.findById("users", created.value);
+uint32_t t1 = after.value.meta().updatedAt;
+Serial.printf("No-op avoided write: %s\n", (t0 == t1 ? "true" : "false"));
+
+// Optionally force a sync and observe no DocumentUpdated event is emitted
+db.syncNow();
+```
+
+
 ## Strengths
 - Familiar document/collection model inspired by MongoDB.
 - Compact C++17 implementation with no exceptions.
