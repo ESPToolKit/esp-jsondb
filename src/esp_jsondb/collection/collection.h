@@ -46,6 +46,16 @@ class Collection {
 	// Retrieve the first document matching a JSON filter (key==value pairs)
 	DbResult<DocView> findOne(const JsonDocument &filter);
 
+	// Update the first document matching predicate; optionally create if not found
+	DbStatus updateOne(std::function<bool(const DocView &)> pred,
+					  std::function<void(DocView &)> mutator,
+					  bool create);
+
+	// Update the first document matching a JSON filter with a JSON patch; optionally create if not found
+	DbStatus updateOne(const JsonDocument &filter,
+					  const JsonDocument &patch,
+					  bool create);
+
 	// Update single by id (mutate via view)
 	DbStatus updateById(const std::string &id, std::function<void(DocView &)> mutator);
 

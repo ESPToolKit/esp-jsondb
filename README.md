@@ -179,6 +179,27 @@ if (firstUser.status.ok()) {
 }
 ```
 
+Update a single document with updateOne (optionally create if missing):
+```cpp
+// 1) Using a predicate + mutator
+db.updateOne("users",
+    [](const DocView &doc){
+        return doc["email"].as<std::string>() == "user3@example.com";
+    },
+    [](DocView &doc){
+        doc["role"].set("admin");
+    }
+);
+
+// 2) Using a JSON filter + JSON patch
+JsonDocument patch;
+patch["role"] = "admin";
+JsonDocument filter;
+filter["email"] = "user5@example.com";
+// create=true will create the document if none match filter (upsert)
+db.updateOne("users", filter, patch, /*create=*/true);
+```
+
 ## References
 Collections can store references to each other. The `populate` helper resolves them:
 ```cpp

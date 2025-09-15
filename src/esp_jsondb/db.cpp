@@ -215,6 +215,28 @@ DbResult<DocView> DataBase::findOne(const std::string &name, const JsonDocument 
 	return cr.value->findOne(filter);
 }
 
+DbStatus DataBase::updateOne(const std::string &name,
+							  std::function<bool(const DocView &)> pred,
+							  std::function<void(DocView &)> mutator,
+							  bool create) {
+	auto cr = collection(name);
+	if (!cr.status.ok()) {
+		return cr.status;
+	}
+	return cr.value->updateOne(std::move(pred), std::move(mutator), create);
+}
+
+DbStatus DataBase::updateOne(const std::string &name,
+							  const JsonDocument &filter,
+							  const JsonDocument &patch,
+							  bool create) {
+	auto cr = collection(name);
+	if (!cr.status.ok()) {
+		return cr.status;
+	}
+	return cr.value->updateOne(filter, patch, create);
+}
+
 DbStatus DataBase::updateById(const std::string &name, const std::string &id, std::function<void(DocView &)> mutator) {
 	auto cr = collection(name);
 	if (!cr.status.ok()) {

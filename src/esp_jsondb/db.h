@@ -70,6 +70,18 @@ class DataBase {
 	// Convenience: find the first document matching a JSON filter in the given collection
 	DbResult<DocView> findOne(const std::string &collectionName, const JsonDocument &filter);
 
+	// Convenience: update the first match (predicate + mutator). If create=true, creates new when none found
+	DbStatus updateOne(const std::string &collectionName,
+					  std::function<bool(const DocView &)> pred,
+					  std::function<void(DocView &)> mutator,
+					  bool create = false);
+
+	// Convenience: update the first match (JSON filter + JSON patch). If create=true, creates new when none found
+	DbStatus updateOne(const std::string &collectionName,
+					  const JsonDocument &filter,
+					  const JsonDocument &patch,
+					  bool create = false);
+
 	// Convenience: update a document by _id in the given collection
 	DbStatus updateById(const std::string &collectionName, const std::string &id, std::function<void(DocView &)> mutator);
 

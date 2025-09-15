@@ -146,6 +146,144 @@ DbResult<DocView> Collection::findOne(const JsonDocument &filter) {
 	return findOne(std::move(pred));
 }
 
+DbStatus Collection::updateOne(std::function<bool(const DocView &)> pred,
+							   std::function<void(DocView &)> mutator,
+							   bool create) {
+	bool updated = false;
+	bool created = false;
+	DbStatus st{DbStatusCode::NotFound, "document not found"};
+	{
+		FrLock lk(_mu);
+		// Search existing docs first
+		for (auto &kv : _docs) {
+			DocView v(kv.second.get(), &_schema, nullptr); // use outer lock
+			if (!pred || pred(v)) {
+				mutator(v);
+				if (_schema.hasValidate()) {
+					auto obj = v.asObject();
+					auto ve = _schema.runPreSave(obj);
+					if (!ve.valid) {
+						v.discard();
+						return dbSetLastError({DbStatusCode::ValidationFailed, ve.message});
+					}
+				}
+				st = v.commit();
+				if (!st.ok()) return dbSetLastError(st);
+				_dirty = true;
+				updated = true;
+				break;
+			}
+		}
+
+		// If not found and create requested, create a new record and apply mutator
+		if (!updated && create) {
+			auto rec = std::make_unique<DocumentRecord>();
+			rec->meta.createdAt = nowUtcMs();
+			rec->meta.updatedAt = rec->meta.createdAt;
+			rec->meta.id = ObjectId().toHex();
+			rec->meta.dirty = true;
+
+			DocView v(rec.get(), &_schema, nullptr);
+			// Initialize as empty object then let mutator fill values
+			v.asObject();
+			mutator(v);
+			if (_schema.hasValidate()) {
+				auto obj = v.asObject();
+				auto ve = _schema.runPreSave(obj);
+				if (!ve.valid) {
+					v.discard();
+					return dbSetLastError({DbStatusCode::ValidationFailed, ve.message});
+				}
+			}
+			st = v.commit();
+			if (!st.ok()) return dbSetLastError(st);
+			const std::string id = rec->meta.id;
+			_docs.emplace(id, std::move(rec));
+			_dirty = true;
+			created = true;
+			st = {DbStatusCode::Ok, ""};
+		}
+	}
+	if (created) db.emitEvent(DBEventType::DocumentCreated);
+	else if (updated) db.emitEvent(DBEventType::DocumentUpdated);
+	return dbSetLastError(st);
+}
+
+DbStatus Collection::updateOne(const JsonDocument &filter,
+							   const JsonDocument &patch,
+							   bool create) {
+	bool updated = false;
+	bool created = false;
+	DbStatus st{DbStatusCode::NotFound, "document not found"};
+	{
+		FrLock lk(_mu);
+		// Look for first matching doc
+		for (auto &kv : _docs) {
+			DocView v(kv.second.get(), &_schema, nullptr);
+			bool match = true;
+			for (auto kvf : filter.as<JsonObjectConst>()) {
+				if (v[kvf.key().c_str()] != kvf.value()) {
+					match = false;
+					break;
+				}
+			}
+			if (match) {
+				for (auto kvp : patch.as<JsonObjectConst>()) {
+					v[kvp.key().c_str()].set(kvp.value());
+				}
+				if (_schema.hasValidate()) {
+					auto obj = v.asObject();
+					auto ve = _schema.runPreSave(obj);
+					if (!ve.valid) {
+						v.discard();
+						return dbSetLastError({DbStatusCode::ValidationFailed, ve.message});
+					}
+				}
+				st = v.commit();
+				if (!st.ok()) return dbSetLastError(st);
+				_dirty = true;
+				updated = true;
+				break;
+			}
+		}
+
+		if (!updated && create) {
+			// Create a new document merging filter and patch
+			auto rec = std::make_unique<DocumentRecord>();
+			rec->meta.createdAt = nowUtcMs();
+			rec->meta.updatedAt = rec->meta.createdAt;
+			rec->meta.id = ObjectId().toHex();
+			rec->meta.dirty = true;
+
+			DocView v(rec.get(), &_schema, nullptr);
+			auto obj = v.asObject();
+			for (auto kvf : filter.as<JsonObjectConst>()) {
+				obj[kvf.key().c_str()] = kvf.value();
+			}
+			for (auto kvp : patch.as<JsonObjectConst>()) {
+				obj[kvp.key().c_str()] = kvp.value();
+			}
+			if (_schema.hasValidate()) {
+				auto ve = _schema.runPreSave(obj);
+				if (!ve.valid) {
+					v.discard();
+					return dbSetLastError({DbStatusCode::ValidationFailed, ve.message});
+				}
+			}
+			st = v.commit();
+			if (!st.ok()) return dbSetLastError(st);
+			const std::string id = rec->meta.id;
+			_docs.emplace(id, std::move(rec));
+			_dirty = true;
+			created = true;
+			st = {DbStatusCode::Ok, ""};
+		}
+	}
+	if (created) db.emitEvent(DBEventType::DocumentCreated);
+	else if (updated) db.emitEvent(DBEventType::DocumentUpdated);
+	return dbSetLastError(st);
+}
+
 DbStatus Collection::updateById(const std::string &id, std::function<void(DocView &)> mutator) {
 	bool updated = false;
 	DbStatus st{DbStatusCode::Ok, ""};
