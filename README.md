@@ -4,10 +4,16 @@
 
 esp-jsondb is a lightweight document database for ESP32 devices.  It is inspired by the workflow of MongoDB/Mongoose but tailored for resource‑constrained environments.  Documents are stored as JSON using ArduinoJson and collections are flushed to the filesystem on demand.
 
-## Goals
-- Provide a simple, mongoose-like API for embedded projects.
-- Keep code exception free and friendly to C++17 embedded toolchains.
-- Offer optional autosync between memory and flash storage.
+## Features
+- Simple, mongoose-like API for embedded projects
+- C++ 17 friendly
+- In memory cache
+  You don't have to retrive a document and make a struct out of it, just use the db.
+- Automatic syncronisation between memory and flash ( LittleFS )
+- MessagePack compression in ram and in flash
+- Utilizes StreamUtils for faster read and write operations
+- Optional schema validation with type and unique field support
+- Dirty document tracking with change detection ( prevents unnecessary file IO )
 
 ## Limitations
 - The database keeps collections in RAM. Large documents are only practical on boards with PSRAM.
