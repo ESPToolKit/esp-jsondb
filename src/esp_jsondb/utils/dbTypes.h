@@ -24,6 +24,7 @@ struct SyncConfig {
 	UBaseType_t taskPriority = 2;
 	BaseType_t coreId = tskNO_AFFINITY;
 	bool autosync = true;
+	bool coldSync = false;
 };
 
 enum class DBEventType : uint8_t {

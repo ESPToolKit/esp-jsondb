@@ -170,6 +170,7 @@ class DataBase {
 
 	// Refresh diag cache from filesystem (expensive; called during sync)
 	void refreshDiagFromFs();
+	DbStatus preloadCollectionsFromFs();
 
 	// Task handle for autosync
 	TaskHandle_t _syncTask = nullptr;

@@ -39,6 +39,11 @@ DbStatus DataBase::init(const char *baseDir, const SyncConfig &cfg) {
 	// Initial diag refresh from FS (once). This avoids getDiag() touching FS later.
 	refreshDiagFromFs();
 
+	if (_cfg.coldSync) {
+		auto preloadStatus = preloadCollectionsFromFs();
+		if (!preloadStatus.ok()) return preloadStatus;
+	}
+
 	if (_cfg.autosync) {
 		s_self = this;
 		{
@@ -433,6 +438,18 @@ void DataBase::emitError(const DbStatus &st) {
 	}
 }
 
+DbStatus DataBase::preloadCollectionsFromFs() {
+	auto names = getAllCollectionName();
+	for (const auto &name : names) {
+		if (name.empty()) continue;
+		auto cr = collection(name);
+		if (!cr.status.ok()) {
+			return cr.status;
+		}
+	}
+	return setLastError({DbStatusCode::Ok, ""});
+}
+
 JsonDocument DataBase::getDiag() {
 	// Build diagnostics from cached FS snapshot, overlapped with live loaded collections
 	// No filesystem access here.
@@ -482,6 +499,7 @@ JsonDocument DataBase::getDiag() {
 	cfg["baseDir"] = baseDirCopy.c_str();
 	cfg["intervalMs"] = cfgCopy.intervalMs;
 	cfg["autosync"] = cfgCopy.autosync;
+	cfg["coldSync"] = cfgCopy.coldSync;
 	cfg["taskStack"] = cfgCopy.taskStack;
 	cfg["taskPriority"] = static_cast<uint32_t>(cfgCopy.taskPriority);
 	cfg["coreId"] = static_cast<int32_t>(cfgCopy.coreId);
@@ -564,14 +582,24 @@ std::vector<std::string> DataBase::getAllCollectionName() {
 }
 
 DbStatus DataBase::changeConfig(const SyncConfig &cfg) {
-	// Stop existing task if running
+	bool doColdSync = cfg.coldSync;
+	bool shouldStart = false;
+	// Stop existing task if running and apply new config
 	{
 		FrLock lk(_mu);
 		stopSyncTaskUnlocked();
 		_cfg = cfg;
-		if (_cfg.autosync) {
-			startSyncTaskUnlocked();
+		shouldStart = _cfg.autosync;
+	}
+	if (doColdSync) {
+		auto preloadStatus = preloadCollectionsFromFs();
+		if (!preloadStatus.ok()) {
+			return preloadStatus;
 		}
+	}
+	if (shouldStart) {
+		FrLock lk(_mu);
+		startSyncTaskUnlocked();
 	}
 	return setLastError({DbStatusCode::Ok, ""});
 }
