@@ -1,4 +1,4 @@
-# ESPJsonDB - https://github.com/esp-jsondb/esp-jsondb
+# ESPJsonDB - https://github.com/ESPToolKit/esp-jsondb
 # Copyright zekageri 2025
 # MIT License
 
