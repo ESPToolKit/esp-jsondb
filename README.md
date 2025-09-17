@@ -62,13 +62,6 @@ Then include the umbrella header in your code:
 
 Notes:
 - If you are using pioarduino, you can add the same Git URLs to `lib_deps`.
-- Ensure LittleFS support is available for your ESP32 Arduino core; initialize it before `db.init()`.
-
-After publishing to the PlatformIO Registry, users can install by name:
-```ini
-lib_deps =
-  ESPJsonDB
-```
 
 ## Examples
 Ready-to-run sketches are available in the `examples` directory:
@@ -87,12 +80,14 @@ Ready-to-run sketches are available in the `examples` directory:
 void setup() {
     Serial.begin(115200);
 
+    // SyncConfig is optional. The defaults are usually ok.
     SyncConfig syncCfg;
     syncCfg.intervalMs = 3000;  // autosync every 3s
     syncCfg.autosync = true;
 
     // baseDir is normalized to start with '/' and no trailing '/'
     // e.g. "test_db" becomes "/test_db"
+    // Both parameters are optional
     if (!db.init("/test_db", syncCfg).ok()) {
         Serial.println("DB init failed");
         return;
