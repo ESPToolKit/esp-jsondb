@@ -84,6 +84,11 @@ void setup() {
     syncCfg.autosync = true;
     // Disable the RAM cache if you must prioritize memory over speed
     // syncCfg.cacheEnabled = false;
+    // Skip LittleFS.begin() if you mount the FS elsewhere and adjust begin() args
+    // syncCfg.initFileSystem = false;
+    // syncCfg.formatOnFail = false;
+    // syncCfg.maxOpenFiles = 8;
+    // syncCfg.partitionLabel = "storage";
 
     // baseDir is normalized to start with '/' and no trailing '/'
     // e.g. "test_db" becomes "/test_db"

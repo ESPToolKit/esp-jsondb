@@ -6,8 +6,10 @@ static DataBase *s_self = nullptr;
 FrMutex g_fsMutex; // definition of global FS mutex
 
 DbStatus DataBase::ensureFsReady() {
-	if (!LittleFS.begin(true)) {
-		return setLastError({DbStatusCode::IoError, "LittleFS.begin failed"});
+	if (_cfg.initFileSystem) {
+		if (!LittleFS.begin(_cfg.formatOnFail, "/littlefs", _cfg.maxOpenFiles, _cfg.partitionLabel)) {
+			return setLastError({DbStatusCode::IoError, "LittleFS.begin failed"});
+		}
 	}
 	if (!fsEnsureDir(_baseDir)) {
 		return setLastError({DbStatusCode::IoError, "mkdir baseDir failed"});
@@ -501,6 +503,10 @@ JsonDocument DataBase::getDiag() {
 	cfg["autosync"] = cfgCopy.autosync;
 	cfg["coldSync"] = cfgCopy.coldSync;
 	cfg["cacheEnabled"] = cfgCopy.cacheEnabled;
+	cfg["initFileSystem"] = cfgCopy.initFileSystem;
+	cfg["formatOnFail"] = cfgCopy.formatOnFail;
+	cfg["maxOpenFiles"] = static_cast<uint32_t>(cfgCopy.maxOpenFiles);
+	cfg["partitionLabel"] = cfgCopy.partitionLabel ? cfgCopy.partitionLabel : nullptr;
 	cfg["taskStack"] = cfgCopy.taskStack;
 	cfg["taskPriority"] = static_cast<uint32_t>(cfgCopy.taskPriority);
 	cfg["coreId"] = static_cast<int32_t>(cfgCopy.coreId);

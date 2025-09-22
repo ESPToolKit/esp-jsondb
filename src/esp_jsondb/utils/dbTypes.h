@@ -26,6 +26,10 @@ struct SyncConfig {
 	bool autosync = true;
 	bool coldSync = false;
 	bool cacheEnabled = true;
+	bool initFileSystem = true;
+	bool formatOnFail = true;
+	uint8_t maxOpenFiles = 10;
+	const char *partitionLabel = nullptr;
 };
 
 enum class DBEventType : uint8_t {

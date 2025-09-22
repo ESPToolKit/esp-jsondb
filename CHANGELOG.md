@@ -11,6 +11,7 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 - SchemaField: `bool unique` flag (default `false`) to enforce per-collection uniqueness for scalar fields.
 - New example: `examples/UniqueFields` demonstrating unique constraints on create and update.
 - `SyncConfig::cacheEnabled` flag to disable the in-memory document cache for low-memory deployments.
+- `SyncConfig` LittleFS controls: `initFileSystem`, `formatOnFail`, `maxOpenFiles`, and `partitionLabel`.
 ### Changed
 - Enforce unique constraints during `create`, `updateOne` (both overloads), `updateById`, and `updateMany`.
   Violations return `DbStatusCode::ValidationFailed` with message `"unique constraint violated"`.
