@@ -7,6 +7,7 @@
 #include <ctime>
 #include <memory>
 #include <string>
+#include <functional>
 #include <vector>
 
 #include "../utils/dbTypes.h"
@@ -41,7 +42,10 @@ struct DocumentRecord {
 // - On commit(): reserialize to MessagePack and mark dirty
 class DocView {
   public:
-	DocView(std::shared_ptr<DocumentRecord> rec, const Schema *schema = nullptr, FrMutex *mu = nullptr);
+	DocView(std::shared_ptr<DocumentRecord> rec,
+			const Schema *schema = nullptr,
+			FrMutex *mu = nullptr,
+			std::function<DbStatus(const std::shared_ptr<DocumentRecord>&)> commitSink = nullptr);
 	~DocView(); // optional auto-commit if enabled
 
 	// non-copyable, movable
@@ -85,6 +89,7 @@ class DocView {
 	std::unique_ptr<JsonDocument> _doc; // decoded pool
 	bool _dirtyLocally = false;
 	FrMutex *_mu = nullptr; // optional: used when called without external lock
+	std::function<DbStatus(const std::shared_ptr<DocumentRecord>&)> _commitSink;
 	DbStatus decode();
 	DbStatus encode();
 };

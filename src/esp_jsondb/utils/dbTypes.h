@@ -25,6 +25,7 @@ struct SyncConfig {
 	BaseType_t coreId = tskNO_AFFINITY;
 	bool autosync = true;
 	bool coldSync = false;
+	bool cacheEnabled = true;
 };
 
 enum class DBEventType : uint8_t {

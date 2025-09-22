@@ -4,8 +4,11 @@
 #include "../utils/time_utils.h"
 #include <utility>
 
-DocView::DocView(std::shared_ptr<DocumentRecord> rec, const Schema *schema, FrMutex *mu)
-	: _rec(std::move(rec)), _schema(schema), _mu(mu) {}
+DocView::DocView(std::shared_ptr<DocumentRecord> rec,
+			 const Schema *schema,
+			 FrMutex *mu,
+			 std::function<DbStatus(const std::shared_ptr<DocumentRecord>&)> commitSink)
+	: _rec(std::move(rec)), _schema(schema), _mu(mu), _commitSink(std::move(commitSink)) {}
 
 DocView::~DocView() {
 	// no auto-commit by default; discard decoded state
@@ -158,7 +161,12 @@ JsonObjectConst DocView::asObjectConst() const {
 
 DbStatus DocView::commit() {
 	if (!_doc) return dbSetLastError({DbStatusCode::Ok, "no changes"});
-	return encode();
+	auto st = encode();
+	if (!st.ok()) return st;
+	if (_commitSink && _rec) {
+		st = _commitSink(_rec);
+	}
+	return st;
 }
 
 void DocView::discard() {

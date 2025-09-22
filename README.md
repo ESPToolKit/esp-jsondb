@@ -9,7 +9,7 @@ esp-jsondb is a lightweight document database for ESP32 devices.  It is inspired
 ## Features
 - Simple, mongoose-like API for embedded projects
 - C++ 17 friendly
-- In memory cache
+- Configurable in-memory cache (can be disabled to conserve RAM)
   You don't have to retrive a document and make a struct out of it, just use the db.
 - Automatic syncronisation between memory and flash ( LittleFS )
 - MessagePack compression in ram and in flash
@@ -38,7 +38,7 @@ esp-jsondb is a lightweight document database for ESP32 devices.  It is inspired
   #include <ESPJsonDB.h>
   ```
 
-### PlatformIO (and pioarduino)
+### PlatformIO / PIOArduino
 Add the libraries to your `platformio.ini` under `lib_deps`. You can reference
 this library and StreamUtils directly by Git URL; ArduinoJson can be pulled from the registry.
 
@@ -60,14 +60,12 @@ Then include the umbrella header in your code:
 #include <ESPJsonDB.h>
 ```
 
-Notes:
-- If you are using pioarduino, you can add the same Git URLs to `lib_deps`.
-
 ## Examples
 Ready-to-run sketches are available in the `examples` directory:
 
 - `QuickStart` - basic database initialization and callbacks
 - `Collections` - create and drop collections
+- `CacheDisabled` - run the database without the RAM cache
 - `BulkOperations` - batch inserts, updates, and queries
 - `SchemaValidation` - register schemas and validate documents
 - `UniqueFields` - enforce unique fields in a schema
@@ -84,6 +82,8 @@ void setup() {
     SyncConfig syncCfg;
     syncCfg.intervalMs = 3000;  // autosync every 3s
     syncCfg.autosync = true;
+    // Disable the RAM cache if you must prioritize memory over speed
+    // syncCfg.cacheEnabled = false;
 
     // baseDir is normalized to start with '/' and no trailing '/'
     // e.g. "test_db" becomes "/test_db"

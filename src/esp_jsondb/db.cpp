@@ -127,7 +127,7 @@ DbResult<Collection *> DataBase::collection(const std::string &name) {
 		auto sit = _schemas.find(name);
 		if (sit != _schemas.end()) sc = sit->second;
 	}
-	auto col = std::make_unique<Collection>(name, sc);
+	auto col = std::make_unique<Collection>(name, sc, _baseDir, _cfg.cacheEnabled);
 	auto st = col->loadFromFs(_baseDir);
 	if (!st.ok()) {
 		res.status = setLastError(st);
@@ -500,6 +500,7 @@ JsonDocument DataBase::getDiag() {
 	cfg["intervalMs"] = cfgCopy.intervalMs;
 	cfg["autosync"] = cfgCopy.autosync;
 	cfg["coldSync"] = cfgCopy.coldSync;
+	cfg["cacheEnabled"] = cfgCopy.cacheEnabled;
 	cfg["taskStack"] = cfgCopy.taskStack;
 	cfg["taskPriority"] = static_cast<uint32_t>(cfgCopy.taskPriority);
 	cfg["coreId"] = static_cast<int32_t>(cfgCopy.coreId);
@@ -589,6 +590,9 @@ DbStatus DataBase::changeConfig(const SyncConfig &cfg) {
 		FrLock lk(_mu);
 		stopSyncTaskUnlocked();
 		_cfg = cfg;
+		for (auto &kv : _cols) {
+			if (kv.second) kv.second->setCacheEnabled(_cfg.cacheEnabled);
+		}
 		shouldStart = _cfg.autosync;
 	}
 	if (doColdSync) {

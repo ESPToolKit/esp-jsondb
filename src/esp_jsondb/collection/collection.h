@@ -21,8 +21,10 @@
 
 class Collection {
   public:
-    explicit Collection(const std::string &name, const Schema &schema);
+    Collection(const std::string &name, const Schema &schema, std::string baseDir, bool cacheEnabled);
     const std::string &name() const { return _name; }
+    bool cacheEnabled() const { return _cacheEnabled; }
+    void setCacheEnabled(bool enabled);
 
 	// Create from JsonObjectConst (validated)
 	DbResult<std::string> create(JsonObjectConst data); // returns new _id
@@ -91,7 +93,7 @@ class Collection {
 	DbStatus flushDirtyToFs(const std::string &baseDir, bool &didWork);
 
     // Optional: stats
-    size_t size() const { return _docs.size(); }
+    size_t size() const { return _cacheEnabled ? _docs.size() : countDocumentsFromFs(); }
 
     // Mark all records as removed (used when dropping a collection)
     void markAllRemoved() {
@@ -105,43 +107,81 @@ class Collection {
 	std::string _name;
 	Schema _schema;
     // Use shared_ptr to keep records alive while views exist
-    std::map<std::string, std::shared_ptr<DocumentRecord>> _docs;
+	std::map<std::string, std::shared_ptr<DocumentRecord>> _docs;
 	bool _dirty = false;
 	std::vector<std::string> _deletedIds; // files to remove on next flush
 	FrMutex _mu;						  // guards _docs, _deletedIds
+	std::string _baseDir;
+	bool _cacheEnabled = true;
 
 	DbStatus writeDocToFile(const std::string &baseDir, const DocumentRecord &r);
     DbResult<std::shared_ptr<DocumentRecord>> readDocFromFile(const std::string &baseDir, const std::string &id);
-    // Enforce unique constraints declared in schema fields; excludes selfId when provided
+    DbStatus checkUniqueFieldsInCache(JsonObjectConst obj, const std::string &selfId);
+    DbStatus checkUniqueFieldsOnDisk(JsonObjectConst obj, const std::string &selfId);
     DbStatus checkUniqueFields(JsonObjectConst obj, const std::string &selfId);
+	std::vector<std::string> listDocumentIdsFromFs() const;
+    DbStatus persistImmediate(const std::shared_ptr<DocumentRecord> &rec);
+    size_t countDocumentsFromFs() const;
+    DocView makeView(std::shared_ptr<DocumentRecord> rec);
+    DbStatus updateOneNoCache(std::function<bool(const DocView &)> pred,
+                              std::function<void(DocView &)> mutator,
+                              bool create,
+                              bool &created,
+                              bool &updated);
+    DbStatus updateOneJsonNoCache(const JsonDocument &filter,
+                                  const JsonDocument &patch,
+                                  bool create,
+                                  bool &created,
+                                  bool &updated);
+    DbStatus updateByIdNoCache(const std::string &id,
+                               std::function<void(DocView &)> mutator,
+                               bool &updated);
+    DbStatus removeByIdNoCache(const std::string &id, bool &removed);
 };
 
 template <typename Pred>
 DbResult<size_t> Collection::removeMany(Pred &&p) {
     DbResult<size_t> res{};
-    std::vector<std::string> toErase;
-    {
-        FrLock lk(_mu);
-        toErase.reserve(_docs.size());
-    for (auto &kv : _docs) {
-        DocView v(kv.second, &_schema, nullptr);
-        if (p(v)) {
-            toErase.push_back(kv.first);
+    if (_cacheEnabled) {
+        std::vector<std::string> toErase;
+        {
+            FrLock lk(_mu);
+            toErase.reserve(_docs.size());
+            for (auto &kv : _docs) {
+                DocView v(kv.second, &_schema, nullptr);
+                if (p(v)) {
+                    toErase.push_back(kv.first);
+                }
+            }
+            for (auto &id : toErase) {
+                auto it = _docs.find(id);
+                if (it != _docs.end()) {
+                    it->second->meta.removed = true;
+                    _deletedIds.push_back(id);
+                    _docs.erase(it);
+                }
+            }
+            if (!toErase.empty()) _dirty = true;
         }
-    }
-    for (auto &id : toErase) {
-        auto it = _docs.find(id);
-        if (it != _docs.end()) {
-            it->second->meta.removed = true;
-            _deletedIds.push_back(id);
-            _docs.erase(it);
+        res.value = toErase.size();
+    } else {
+        size_t removedCount = 0;
+        auto ids = listDocumentIdsFromFs();
+        for (const auto &id : ids) {
+            auto rr = readDocFromFile(_baseDir, id);
+            if (!rr.status.ok()) continue;
+            auto view = makeView(rr.value);
+            if (p(view)) {
+                bool removed = false;
+                auto st = removeByIdNoCache(id, removed);
+                if (!st.ok()) continue;
+                if (removed) ++removedCount;
+            }
         }
-    }
-        if (!toErase.empty()) _dirty = true;
+        res.value = removedCount;
     }
     res.status = {DbStatusCode::Ok, ""};
     dbSetLastError(res.status);
-    res.value = toErase.size();
     return res;
 }
 
@@ -149,7 +189,7 @@ template <typename Pred, typename Mut, typename>
 DbResult<size_t> Collection::updateMany(Pred &&p, Mut &&m) {
     DbResult<size_t> res{};
     size_t count = 0;
-    {
+    if (_cacheEnabled) {
         FrLock lk(_mu);
         for (auto &kv : _docs) {
             DocView v(kv.second, &_schema, nullptr);
@@ -176,6 +216,33 @@ DbResult<size_t> Collection::updateMany(Pred &&p, Mut &&m) {
             }
         }
         if (count) _dirty = true;
+    } else {
+        auto ids = listDocumentIdsFromFs();
+        for (const auto &id : ids) {
+            auto rr = readDocFromFile(_baseDir, id);
+            if (!rr.status.ok()) continue;
+            auto view = makeView(rr.value);
+            if (p(view)) {
+                m(view);
+                if (_schema.hasValidate()) {
+                    auto obj = view.asObject();
+                    auto ve = _schema.runPreSave(obj);
+                    if (!ve.valid) {
+                        view.discard();
+                        continue;
+                    }
+                    auto ust = checkUniqueFields(obj, id);
+                    if (!ust.ok()) {
+                        view.discard();
+                        continue;
+                    }
+                }
+                auto st = view.commit();
+                if (st.ok()) {
+                    ++count;
+                }
+            }
+        }
     }
     res.status = {DbStatusCode::Ok, ""};
     dbSetLastError(res.status);
@@ -187,7 +254,7 @@ template <typename Mut, typename>
 DbResult<size_t> Collection::updateMany(Mut &&m) {
     DbResult<size_t> res{};
     size_t count = 0;
-    {
+    if (_cacheEnabled) {
         FrLock lk(_mu);
         for (auto &kv : _docs) {
             DocView v(kv.second, &_schema, nullptr);
@@ -215,6 +282,34 @@ DbResult<size_t> Collection::updateMany(Mut &&m) {
             }
         }
         if (count) _dirty = true;
+    } else {
+        auto ids = listDocumentIdsFromFs();
+        for (const auto &id : ids) {
+            auto rr = readDocFromFile(_baseDir, id);
+            if (!rr.status.ok()) continue;
+            auto view = makeView(rr.value);
+            if (m(view)) {
+                if (_schema.hasValidate()) {
+                    auto obj = view.asObject();
+                    auto ve = _schema.runPreSave(obj);
+                    if (!ve.valid) {
+                        view.discard();
+                        continue;
+                    }
+                    auto ust = checkUniqueFields(obj, id);
+                    if (!ust.ok()) {
+                        view.discard();
+                        continue;
+                    }
+                }
+                auto st = view.commit();
+                if (st.ok()) {
+                    ++count;
+                }
+            } else {
+                view.discard();
+            }
+        }
     }
     res.status = {DbStatusCode::Ok, ""};
     dbSetLastError(res.status);
