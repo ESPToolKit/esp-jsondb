@@ -86,7 +86,7 @@ DbStatus Collection::checkUniqueFieldsOnDisk(JsonObjectConst obj, const std::str
 			if (field.type == FieldType::Object || field.type == FieldType::Array) continue;
 			JsonVariantConst newVal = obj[field.name];
 			if (newVal.isNull()) continue;
-			JsonVariantConst existingVal = view[field.name.c_str()];
+			JsonVariantConst existingVal = view[field.name];
 			if (!existingVal.isNull() && existingVal == newVal) {
 				return dbSetLastError({DbStatusCode::ValidationFailed, "unique constraint violated"});
 			}
