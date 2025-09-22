@@ -31,7 +31,7 @@ struct SyncConfig {
 	bool initFileSystem = true;
 	bool formatOnFail = true;
 	uint8_t maxOpenFiles = 10;
-	const char *partitionLabel = nullptr;
+	const char *partitionLabel = "spiffs";
 };
 
 enum class DBEventType : uint8_t {

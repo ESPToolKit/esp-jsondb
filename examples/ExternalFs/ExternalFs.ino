@@ -49,7 +49,7 @@ void setup() {
     auto findRes = db.findById("settings", createRes.value);
     if (findRes.status.ok()) {
         Serial.print("Fetched doc: ");
-        serializeJsonPretty(findRes.value.as<JsonObjectConst>(), Serial);
+        serializeJsonPretty(findRes.value.asObjectConst(), Serial);
         Serial.println();
     } else {
         Serial.printf("Lookup failed: %s\n", findRes.status.message);
