@@ -19,7 +19,8 @@ esp-jsondb is a lightweight document database for ESP32 devices.  It is inspired
 - Thread safe with IDF mutexes
 
 ## Limitations
-- The database keeps collections in RAM. Large documents are only practical on boards with PSRAM.
+- The database keeps collections in RAM if cache is enabled.
+  Large documents are only practical on boards with PSRAM.
 - Designed for ESP32 + LittleFS. Other platforms or filesystems have not been tested.
 
 ## Dependencies

@@ -6,12 +6,16 @@ static DataBase *s_self = nullptr;
 FrMutex g_fsMutex; // definition of global FS mutex
 
 DbStatus DataBase::ensureFsReady() {
-	if (_cfg.initFileSystem) {
+	_fs = _cfg.fs ? _cfg.fs : &LittleFS;
+	if (!_fs) {
+		return setLastError({DbStatusCode::InvalidArgument, "filesystem handle is null"});
+	}
+	if (_cfg.initFileSystem && _fs == &LittleFS) {
 		if (!LittleFS.begin(_cfg.formatOnFail, "/littlefs", _cfg.maxOpenFiles, _cfg.partitionLabel)) {
 			return setLastError({DbStatusCode::IoError, "LittleFS.begin failed"});
 		}
 	}
-	if (!fsEnsureDir(_baseDir)) {
+	if (!fsEnsureDir(*_fs, _baseDir)) {
 		return setLastError({DbStatusCode::IoError, "mkdir baseDir failed"});
 	}
 	return setLastError({DbStatusCode::Ok, ""});
@@ -129,7 +133,7 @@ DbResult<Collection *> DataBase::collection(const std::string &name) {
 		auto sit = _schemas.find(name);
 		if (sit != _schemas.end()) sc = sit->second;
 	}
-	auto col = std::make_unique<Collection>(name, sc, _baseDir, _cfg.cacheEnabled);
+	auto col = std::make_unique<Collection>(name, sc, _baseDir, _cfg.cacheEnabled, *_fs);
 	auto st = col->loadFromFs(_baseDir);
 	if (!st.ok()) {
 		res.status = setLastError(st);
@@ -353,10 +357,10 @@ void DataBase::stopSyncTaskUnlocked() {
 }
 
 namespace {
-static void listDirEntries(const std::string &dir, std::vector<std::pair<std::string, bool>> &out) {
+static void listDirEntries(fs::FS &fsImpl, const std::string &dir, std::vector<std::pair<std::string, bool>> &out) {
 	FrLock fs(g_fsMutex);
-	if (!LittleFS.exists(dir.c_str())) return;
-	File d = LittleFS.open(dir.c_str());
+	if (!fsImpl.exists(dir.c_str())) return;
+	File d = fsImpl.open(dir.c_str());
 	if (!d || !d.isDirectory()) {
 		if (d) d.close();
 		return;
@@ -372,13 +376,13 @@ static void listDirEntries(const std::string &dir, std::vector<std::pair<std::st
 	d.close();
 }
 
-static void removeTree(const std::string &path) {
+static void removeTree(fs::FS &fsImpl, const std::string &path) {
 	// Check if path is a directory
 	bool isDir = false;
 	{
 		FrLock fs(g_fsMutex);
-		if (!LittleFS.exists(path.c_str())) return;
-		File f = LittleFS.open(path.c_str());
+		if (!fsImpl.exists(path.c_str())) return;
+		File f = fsImpl.open(path.c_str());
 		if (f) {
 			isDir = f.isDirectory();
 			f.close();
@@ -386,25 +390,25 @@ static void removeTree(const std::string &path) {
 	}
 	if (!isDir) {
 		FrLock fs(g_fsMutex);
-		LittleFS.remove(path.c_str());
+		fsImpl.remove(path.c_str());
 		return;
 	}
 	// List children first without holding lock during recursion
 	std::vector<std::pair<std::string, bool>> entries;
-	listDirEntries(path, entries);
+	listDirEntries(fsImpl, path, entries);
 	for (auto &e : entries) {
 		if (e.second) {
-			removeTree(e.first);
+			removeTree(fsImpl, e.first);
 		} else {
 			FrLock fs(g_fsMutex);
-			LittleFS.remove(e.first.c_str());
+			fsImpl.remove(e.first.c_str());
 		}
 	}
 	// Finally remove the directory itself
 	{
 		FrLock fs(g_fsMutex);
 #ifdef ARDUINO_ARCH_ESP32
-		LittleFS.rmdir(path.c_str());
+		fsImpl.rmdir(path.c_str());
 #endif
 	}
 }
@@ -414,7 +418,7 @@ DbStatus DataBase::removeCollectionDir(const std::string &name) {
 	std::string dir = _baseDir;
 	if (!dir.empty() && dir.back() != '/') dir += '/';
 	dir += name;
-	removeTree(dir);
+	if (_fs) removeTree(*_fs, dir);
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
@@ -543,7 +547,7 @@ DbStatus DataBase::dropAll() {
 	// Remove base directory tree and recreate base dir
 	{
 		std::string base = _baseDir;
-		removeTree(base);
+		if (_fs) removeTree(*_fs, base);
 	}
 	auto st = ensureFsReady();
 	if (!st.ok()) return st;
@@ -574,13 +578,15 @@ std::vector<std::string> DataBase::getAllCollectionName() {
 	}
 	// Scan filesystem
 	std::vector<std::pair<std::string, bool>> entries;
-	listDirEntries(_baseDir, entries);
-	for (auto &e : entries) {
-		if (!e.second) continue; // only directories
-		const std::string &full = e.first;
-		auto p = full.find_last_of('/');
-		std::string name = (p == std::string::npos) ? full : full.substr(p + 1);
-		seen[name] = true;
+	if (_fs) {
+		listDirEntries(*_fs, _baseDir, entries);
+		for (auto &e : entries) {
+			if (!e.second) continue; // only directories
+			const std::string &full = e.first;
+			auto p = full.find_last_of('/');
+			std::string name = (p == std::string::npos) ? full : full.substr(p + 1);
+			seen[name] = true;
+		}
 	}
 	names.reserve(seen.size());
 	for (auto &kv : seen)
@@ -601,6 +607,8 @@ DbStatus DataBase::changeConfig(const SyncConfig &cfg) {
 		}
 		shouldStart = _cfg.autosync;
 	}
+	auto fsStatus = ensureFsReady();
+	if (!fsStatus.ok()) return fsStatus;
 	if (doColdSync) {
 		auto preloadStatus = preloadCollectionsFromFs();
 		if (!preloadStatus.ok()) {
@@ -616,11 +624,15 @@ DbStatus DataBase::changeConfig(const SyncConfig &cfg) {
 
 JsonDocument DataBase::getSnapshot() {
 	JsonDocument snap;
+	if (!_fs) {
+		dbSetLastError({DbStatusCode::IoError, "filesystem not ready"});
+		return snap;
+	}
 	auto colsObj = snap["collections"].to<JsonObject>();
 
 	// Scan collections dirs
 	std::vector<std::pair<std::string, bool>> colDirs;
-	listDirEntries(_baseDir, colDirs);
+	listDirEntries(*_fs, _baseDir, colDirs);
 	for (auto &cd : colDirs) {
 		if (!cd.second) continue; // not a directory
 		const std::string &full = cd.first;
@@ -629,7 +641,7 @@ JsonDocument DataBase::getSnapshot() {
 
 		// Iterate files in collection dir
 		std::vector<std::pair<std::string, bool>> files;
-		listDirEntries(full, files);
+		listDirEntries(*_fs, full, files);
 		JsonArray arr = colsObj[colName.c_str()].to<JsonArray>();
 		for (auto &fe : files) {
 			if (fe.second) continue; // skip subdirectories
@@ -646,7 +658,7 @@ JsonDocument DataBase::getSnapshot() {
 			JsonDocument tmp;
 			{
 				FrLock fs(g_fsMutex);
-				File f = LittleFS.open(fpath.c_str(), FILE_READ);
+				File f = _fs->open(fpath.c_str(), FILE_READ);
 				if (f) {
 					derr = deserializeMsgPack(tmp, f);
 					f.close();
@@ -670,6 +682,9 @@ DbStatus DataBase::restoreFromSnapshot(const JsonDocument &snapshot) {
 	if (cols.isNull()) {
 		return setLastError({DbStatusCode::InvalidArgument, "missing collections"});
 	}
+	if (!_fs) {
+		return setLastError({DbStatusCode::IoError, "filesystem not ready"});
+	}
 
 	// Drop everything first
 	auto st = dropAll();
@@ -688,7 +703,7 @@ DbStatus DataBase::restoreFromSnapshot(const JsonDocument &snapshot) {
 		dir += colName;
 		{
 			FrLock fs(g_fsMutex);
-			fsEnsureDir(dir);
+			fsEnsureDir(*_fs, dir);
 		}
 
 		for (JsonObjectConst obj : arr) {
@@ -712,18 +727,18 @@ DbStatus DataBase::restoreFromSnapshot(const JsonDocument &snapshot) {
 			std::string tmpPath = finalPath + ".tmp";
 			{
 				FrLock fs(g_fsMutex);
-				File f = LittleFS.open(tmpPath.c_str(), FILE_WRITE);
+				File f = _fs->open(tmpPath.c_str(), FILE_WRITE);
 				if (!f) return setLastError({DbStatusCode::IoError, "open for write failed"});
 				WriteBufferingStream bufferedFile(f, 256);
 				size_t w = bufferedFile.write(bytes.data(), bytes.size());
 				bufferedFile.flush();
 				f.close();
 				if (w != bytes.size()) {
-					LittleFS.remove(tmpPath.c_str());
+					_fs->remove(tmpPath.c_str());
 					return setLastError({DbStatusCode::IoError, "write failed"});
 				}
-				if (!LittleFS.rename(tmpPath.c_str(), finalPath.c_str())) {
-					LittleFS.remove(tmpPath.c_str());
+				if (!_fs->rename(tmpPath.c_str(), finalPath.c_str())) {
+					_fs->remove(tmpPath.c_str());
 					return setLastError({DbStatusCode::IoError, "rename failed"});
 				}
 			}
@@ -738,14 +753,15 @@ DbStatus DataBase::restoreFromSnapshot(const JsonDocument &snapshot) {
 
 // Private: expensive FS scan; called on init and after successful sync
 void DataBase::refreshDiagFromFs() {
+	if (!_fs) return;
 	std::map<std::string, uint32_t> perCol;
 	uint32_t colCount = 0;
 	{
 		FrLock fs(g_fsMutex);
-		if (!LittleFS.exists(_baseDir.c_str())) {
+		if (!_fs->exists(_baseDir.c_str())) {
 			// No base dir yet → empty
 		} else {
-			File base = LittleFS.open(_baseDir.c_str());
+			File base = _fs->open(_baseDir.c_str());
 			if (base && base.isDirectory()) {
 				for (File f = base.openNextFile(); f; f = base.openNextFile()) {
 					if (!f.isDirectory()) {
@@ -762,7 +778,7 @@ void DataBase::refreshDiagFromFs() {
 					std::string dirPath = _baseDir;
 					if (!dirPath.empty() && dirPath.back() != '/') dirPath += '/';
 					dirPath += cname;
-					File colDir = LittleFS.open(dirPath.c_str());
+					File colDir = _fs->open(dirPath.c_str());
 					if (!colDir || !colDir.isDirectory()) {
 						colDir.close();
 						continue;

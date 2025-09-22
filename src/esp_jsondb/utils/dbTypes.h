@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <FS.h>
 
 #include <cstdint>
 #include <string>
@@ -26,6 +27,7 @@ struct SyncConfig {
 	bool autosync = true;
 	bool coldSync = false;
 	bool cacheEnabled = true;
+	fs::FS *fs = nullptr; // optional external filesystem handle
 	bool initFileSystem = true;
 	bool formatOnFail = true;
 	uint8_t maxOpenFiles = 10;

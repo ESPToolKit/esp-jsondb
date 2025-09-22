@@ -3,8 +3,16 @@
 #include "../utils/fs_utils.h"
 #include "../utils/time_utils.h"
 
-Collection::Collection(const std::string &name, const Schema &schema, std::string baseDir, bool cacheEnabled)
-    : _name(name), _schema(schema), _baseDir(std::move(baseDir)), _cacheEnabled(cacheEnabled) {}
+Collection::Collection(const std::string &name,
+                       const Schema &schema,
+                       std::string baseDir,
+                       bool cacheEnabled,
+                       fs::FS &fs)
+    : _name(name),
+      _schema(schema),
+      _baseDir(std::move(baseDir)),
+      _cacheEnabled(cacheEnabled),
+      _fs(&fs) {}
 
 void Collection::setCacheEnabled(bool enabled) {
 	if (_cacheEnabled == enabled) return;
@@ -60,8 +68,8 @@ DbStatus Collection::checkUniqueFieldsOnDisk(JsonObjectConst obj, const std::str
 	std::string dir = joinPath(_baseDir, _name);
 	{
 		FrLock fs(g_fsMutex);
-		if (LittleFS.exists(dir.c_str())) {
-			File d = LittleFS.open(dir.c_str());
+		if (_fs->exists(dir.c_str())) {
+			File d = _fs->open(dir.c_str());
 			if (!d || !d.isDirectory()) {
 				return dbSetLastError({DbStatusCode::IoError, "open dir failed"});
 			}
@@ -538,13 +546,13 @@ DbStatus Collection::removeById(const std::string &id) {
 DbStatus Collection::writeDocToFile(const std::string &baseDir, const DocumentRecord &r) {
     FrLock fs(g_fsMutex);
 	std::string dir = joinPath(baseDir, _name);
-	if (!fsEnsureDir(dir)) {
+	if (!fsEnsureDir(*_fs, dir)) {
 		return dbSetLastError({DbStatusCode::IoError, "mkdir failed"});
 	}
 	std::string finalPath = joinPath(dir, r.meta.id + ".mp");
 	std::string tmpPath = finalPath + ".tmp";
 	// Write to temp then rename for atomicity
-	File f = LittleFS.open(tmpPath.c_str(), FILE_WRITE);
+	File f = _fs->open(tmpPath.c_str(), FILE_WRITE);
 	if (!f) return {DbStatusCode::IoError, "open for write failed"};
 	// Buffer writes to coalesce small chunks if any
 	WriteBufferingStream bufferedFile(f, 256);
@@ -552,11 +560,11 @@ DbStatus Collection::writeDocToFile(const std::string &baseDir, const DocumentRe
 	bufferedFile.flush();
 	f.close();
 	if (w != r.msgpack.size()) {
-		LittleFS.remove(tmpPath.c_str());
+		_fs->remove(tmpPath.c_str());
 		return dbSetLastError({DbStatusCode::IoError, "write failed"});
 	}
-	if (!LittleFS.rename(tmpPath.c_str(), finalPath.c_str())) {
-		LittleFS.remove(tmpPath.c_str());
+	if (!_fs->rename(tmpPath.c_str(), finalPath.c_str())) {
+		_fs->remove(tmpPath.c_str());
 		return dbSetLastError({DbStatusCode::IoError, "rename failed"});
 	}
 	return dbSetLastError({DbStatusCode::Ok, ""});
@@ -566,7 +574,7 @@ DbResult<std::shared_ptr<DocumentRecord>> Collection::readDocFromFile(const std:
     DbResult<std::shared_ptr<DocumentRecord>> res{};
     std::string path = joinPath(joinPath(baseDir, _name), id + ".mp");
     FrLock fs(g_fsMutex);
-    File f = LittleFS.open(path.c_str(), FILE_READ);
+    File f = _fs->open(path.c_str(), FILE_READ);
     if (!f) {
         res.status = {DbStatusCode::NotFound, "file not found"};
         dbSetLastError(res.status);
@@ -598,8 +606,8 @@ std::vector<std::string> Collection::listDocumentIdsFromFs() const {
 	std::string dir = joinPath(_baseDir, _name);
 	{
 		FrLock fs(g_fsMutex);
-		if (!LittleFS.exists(dir.c_str())) return ids;
-		File d = LittleFS.open(dir.c_str());
+		if (!_fs->exists(dir.c_str())) return ids;
+		File d = _fs->open(dir.c_str());
 		if (!d || !d.isDirectory()) return ids;
 		for (File f = d.openNextFile(); f; f = d.openNextFile()) {
 			if (f.isDirectory()) continue;
@@ -811,10 +819,10 @@ DbStatus Collection::removeByIdNoCache(const std::string &id, bool &removed) {
 	std::string path = joinPath(joinPath(_baseDir, _name), id + ".mp");
 	{
 		FrLock fs(g_fsMutex);
-		if (!LittleFS.exists(path.c_str())) {
+		if (!_fs->exists(path.c_str())) {
 			return dbSetLastError({DbStatusCode::NotFound, "document not found"});
 		}
-		if (!LittleFS.remove(path.c_str())) {
+		if (!_fs->remove(path.c_str())) {
 			return dbSetLastError({DbStatusCode::IoError, "remove failed"});
 		}
 	}
@@ -831,11 +839,11 @@ DbStatus Collection::loadFromFs(const std::string &baseDir) {
 	std::string dir = joinPath(baseDir, _name);
 	{
 		FrLock fs(g_fsMutex);
-		if (!LittleFS.exists(dir.c_str())) {
+		if (!_fs->exists(dir.c_str())) {
 			// Nothing to load yet; create directory lazily on write
 			return dbSetLastError({DbStatusCode::Ok, ""});
 		}
-		File d = LittleFS.open(dir.c_str());
+		File d = _fs->open(dir.c_str());
 		if (!d || !d.isDirectory()) {
 			return dbSetLastError({DbStatusCode::IoError, "open dir failed"});
 		}
@@ -894,8 +902,8 @@ DbStatus Collection::flushDirtyToFs(const std::string &baseDir, bool &didWork) {
 			std::string path = joinPath(dir, id + ".mp");
 			{
 				FrLock fs(g_fsMutex);
-				if (LittleFS.exists(path.c_str())) {
-					LittleFS.remove(path.c_str());
+				if (_fs->exists(path.c_str())) {
+					_fs->remove(path.c_str());
 				}
 			}
 		}

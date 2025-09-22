@@ -6,7 +6,7 @@
 #include <memory>
 #include <vector>
 
-#include <LittleFS.h>
+#include <FS.h>
 #include <StreamUtils.h>
 
 #include <ctime>
@@ -21,7 +21,11 @@
 
 class Collection {
   public:
-    Collection(const std::string &name, const Schema &schema, std::string baseDir, bool cacheEnabled);
+    Collection(const std::string &name,
+               const Schema &schema,
+               std::string baseDir,
+               bool cacheEnabled,
+               fs::FS &fs);
     const std::string &name() const { return _name; }
     bool cacheEnabled() const { return _cacheEnabled; }
     void setCacheEnabled(bool enabled);
@@ -113,6 +117,7 @@ class Collection {
 	FrMutex _mu;						  // guards _docs, _deletedIds
 	std::string _baseDir;
 	bool _cacheEnabled = true;
+	fs::FS *_fs = nullptr; // active filesystem (owned by caller)
 
 	DbStatus writeDocToFile(const std::string &baseDir, const DocumentRecord &r);
     DbResult<std::shared_ptr<DocumentRecord>> readDocFromFile(const std::string &baseDir, const std::string &id);

@@ -1,20 +1,20 @@
 #pragma once
 
 #include <Arduino.h>
-#include <LittleFS.h>
+#include <FS.h>
 #include <string>
 
 std::string joinPath(const std::string &a, const std::string &b);
 
-inline bool fsEnsureDir(const std::string &path) {
+inline bool fsEnsureDir(fs::FS &fs, const std::string &path) {
 	if (path.empty() || path == "/") return true;
-	if (LittleFS.exists(path.c_str())) return true;
+	if (fs.exists(path.c_str())) return true;
 	size_t slash = path.rfind('/');
 	if (slash != std::string::npos && slash > 0) {
 		std::string parent = path.substr(0, slash);
-		if (!fsEnsureDir(parent)) return false;
+		if (!fsEnsureDir(fs, parent)) return false;
 	}
-	return LittleFS.mkdir(path.c_str());
+	return fs.mkdir(path.c_str());
 }
 
 inline std::string joinPath(const std::string &a, const std::string &b) {

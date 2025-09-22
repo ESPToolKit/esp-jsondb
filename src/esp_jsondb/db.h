@@ -135,6 +135,7 @@ class DataBase {
 	std::vector<std::string> _colsToDelete;
 	std::vector<std::function<void(DBEventType)>> _eventCbs;
 	std::vector<std::function<void(const DbStatus &)>> _errorCbs;
+	fs::FS *_fs = &LittleFS; // active filesystem
 	FrMutex _mu; // guards _cols, _schemas, _colsToDelete
 
 	// Tracks most recent status for diagnostics/debugging
