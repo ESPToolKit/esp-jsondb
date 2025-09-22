@@ -384,4 +384,5 @@ See also: `CHANGELOG.md` for version history and notable changes.
 ## ESPToolKit
 
 - Check out other libraries under ESPToolKit: https://github.com/orgs/ESPToolKit/repositories
-- Support me at: https://ko-fi.com/esptoolkit
+- Join our discord server at: https://discord.gg/WG8sSqAy
+- If you like the libraries, you can support me at: https://ko-fi.com/esptoolkit
