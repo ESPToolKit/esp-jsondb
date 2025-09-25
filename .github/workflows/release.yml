@@ -21,29 +21,26 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           version="${tag#v}"
 
-          entry=$(awk -v ver="$version" '
-            $0 ~ "^## \\[" ver "\\]" {
-              found=1
-              print $0
-              next
-            }
-            /^## \\[/ && found {
-              exit
-            }
-            found {
-              print
-            }
-          ' CHANGELOG.md)
+          python3 <<'PY'
+import os
+import re
 
-          if [ -z "$entry" ]; then
-            entry="No changelog entry found for version ${version}."
-          fi
+tag = os.environ.get("GITHUB_REF_NAME", "")
+version = tag[1:] if tag.startswith("v") else tag
 
-          {
-            echo "body<<'EOF'"
-            echo "$entry"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+with open("CHANGELOG.md", "r", encoding="utf-8") as fh:
+    changelog = fh.read()
+
+pattern = re.compile(rf"^## \[{re.escape(version)}\].*?(?=^## \[|\Z)", re.MULTILINE | re.DOTALL)
+match = pattern.search(changelog)
+
+entry = match.group(0).strip() if match else f"No changelog entry found for version {version}."
+
+with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+    out.write("body<<'EOF'\n")
+    out.write(entry + "\n")
+    out.write("EOF\n")
+PY
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
