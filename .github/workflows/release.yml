@@ -19,7 +19,6 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const core = require('@actions/core');
             const tag = process.env.GITHUB_REF_NAME || '';
             const version = tag.startsWith('v') ? tag.slice(1) : tag;
             const fs = require('node:fs');
@@ -35,7 +34,7 @@ jobs:
               const sliceEnd = nextHeader === -1 ? changelog.length : nextHeader;
               entry = changelog.slice(start, sliceEnd).trim();
             }
-            core.setOutput('body', entry);
+            return entry;
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
