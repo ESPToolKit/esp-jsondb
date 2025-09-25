@@ -14,11 +14,43 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Extract changelog entry
+        id: changelog
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+
+          entry=$(awk -v ver="$version" '
+            $0 ~ "^## \\[" ver "\\]" {
+              found=1
+              print $0
+              next
+            }
+            /^## \\[/ && found {
+              exit
+            }
+            found {
+              print
+            }
+          ' CHANGELOG.md)
+
+          if [ -z "$entry" ]; then
+            entry="No changelog entry found for version ${version}."
+          fi
+
+          {
+            echo "body<<'EOF'"
+            echo "$entry"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
           draft: false
           prerelease: false
+          generate_release_notes: false
+          body: ${{ steps.changelog.outputs.body }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
