@@ -16,31 +16,22 @@ jobs:
 
       - name: Extract changelog entry
         id: changelog
-        run: |
-          set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
-          version="${tag#v}"
-
-          python3 <<'PY'
-import os
-import re
-
-tag = os.environ.get("GITHUB_REF_NAME", "")
-version = tag[1:] if tag.startswith("v") else tag
-
-with open("CHANGELOG.md", "r", encoding="utf-8") as fh:
-    changelog = fh.read()
-
-pattern = re.compile(rf"^## \[{re.escape(version)}\].*?(?=^## \[|\Z)", re.MULTILINE | re.DOTALL)
-match = pattern.search(changelog)
-
-entry = match.group(0).strip() if match else f"No changelog entry found for version {version}."
-
-with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
-    out.write("body<<'EOF'\n")
-    out.write(entry + "\n")
-    out.write("EOF\n")
-PY
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = process.env.GITHUB_REF_NAME || '';
+            const version = tag.startsWith('v') ? tag.slice(1) : tag;
+            const fs = require('node:fs');
+            const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
+            const heading = `## [${version}]`;
+            const start = changelog.indexOf(heading);
+            if (start === -1) {
+              return `No changelog entry found for version ${version}.`;
+            }
+            const afterHeading = start + heading.length;
+            const nextHeader = changelog.indexOf('\n## [', afterHeading);
+            const sliceEnd = nextHeader === -1 ? changelog.length : nextHeader;
+            return changelog.slice(start, sliceEnd).trim();
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -48,6 +39,6 @@ PY
           draft: false
           prerelease: false
           generate_release_notes: false
-          body: ${{ steps.changelog.outputs.body }}
+          body: ${{ steps.changelog.outputs.result }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
