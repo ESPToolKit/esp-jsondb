@@ -220,5 +220,3 @@ DbResult<size_t> DataBase::updateMany(const std::string &collectionName, const J
 	}
 	return cr.value->updateMany(patch, std::forward<Pred>(p));
 }
-
-extern DataBase db;
