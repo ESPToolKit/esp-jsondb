@@ -93,6 +93,3 @@ struct DbResult {
 	DbStatus status;
 	T value;
 };
-
-// Record database-wide status for lastError() diagnostics
-DbStatus dbSetLastError(const DbStatus &st);

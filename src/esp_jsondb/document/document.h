@@ -15,6 +15,8 @@
 #include "../utils/refs.h"
 #include "../utils/schema.h"
 
+class DataBase;
+
 /**
  * IMPORTANT: The database uses system UTC time for timestamps (ISO 8601) milliseconds.
  * You must call `configTime(...)` and ensure system time is synced (e.g. via NTP)
@@ -45,6 +47,7 @@ class DocView {
 	DocView(std::shared_ptr<DocumentRecord> rec,
 			const Schema *schema = nullptr,
 			FrMutex *mu = nullptr,
+			DataBase *db = nullptr,
 			std::function<DbStatus(const std::shared_ptr<DocumentRecord>&)> commitSink = nullptr);
 	~DocView(); // optional auto-commit if enabled
 
@@ -89,9 +92,11 @@ class DocView {
 	std::unique_ptr<JsonDocument> _doc; // decoded pool
 	bool _dirtyLocally = false;
 	FrMutex *_mu = nullptr; // optional: used when called without external lock
+	DataBase *_db = nullptr;
 	std::function<DbStatus(const std::shared_ptr<DocumentRecord>&)> _commitSink;
 	DbStatus decode();
 	DbStatus encode();
+	DbStatus recordStatus(const DbStatus &st) const;
 };
 
 template <typename T>

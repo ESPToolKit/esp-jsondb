@@ -8,6 +8,7 @@ class DbTester {
     public:
         void init();
     private:
+        DataBase db;
         void run();
         // Event handlers
         void dbEventHandler(DBEventType evt);

@@ -5,10 +5,11 @@
 #include <utility>
 
 DocView::DocView(std::shared_ptr<DocumentRecord> rec,
-			 const Schema *schema,
-			 FrMutex *mu,
-			 std::function<DbStatus(const std::shared_ptr<DocumentRecord>&)> commitSink)
-	: _rec(std::move(rec)), _schema(schema), _mu(mu), _commitSink(std::move(commitSink)) {}
+				 const Schema *schema,
+				 FrMutex *mu,
+				 DataBase *db,
+				 std::function<DbStatus(const std::shared_ptr<DocumentRecord>&)> commitSink)
+	: _rec(std::move(rec)), _schema(schema), _mu(mu), _db(db), _commitSink(std::move(commitSink)) {}
 
 DocView::~DocView() {
 	// no auto-commit by default; discard decoded state
@@ -17,12 +18,12 @@ DocView::~DocView() {
 DbStatus DocView::decode() {
 	std::unique_ptr<FrLock> guard;
 	if (_mu) guard = std::make_unique<FrLock>(*_mu);
-	if (_doc) return dbSetLastError({DbStatusCode::Ok, ""});
+	if (_doc) return recordStatus({DbStatusCode::Ok, ""});
 	_doc = std::make_unique<JsonDocument>();
 	// If there is no backing record (e.g., NotFound), treat as empty object
 	if (!_rec) {
 		_doc->to<JsonObject>();
-		return dbSetLastError({DbStatusCode::Ok, ""});
+		return recordStatus({DbStatusCode::Ok, ""});
 	}
 	DeserializationError err = DeserializationError::Ok;
 	if (_rec->msgpack.empty()) {
@@ -32,14 +33,14 @@ DbStatus DocView::decode() {
 		err = deserializeMsgPack(*_doc, _rec->msgpack.data(), _rec->msgpack.size());
 		if (err) {
 			_doc.reset();
-			return dbSetLastError({DbStatusCode::Corrupted, "msgpack decode failed"});
+			return recordStatus({DbStatusCode::Corrupted, "msgpack decode failed"});
 		}
 	}
 	if (_schema) {
 		auto obj = _doc->as<JsonObject>();
 		_schema->runPostLoad(obj);
 	}
-	return dbSetLastError({DbStatusCode::Ok, ""});
+	return recordStatus({DbStatusCode::Ok, ""});
 }
 
 namespace {
@@ -67,12 +68,16 @@ struct CompareToBufferPrint : public Print {
 };
 } // namespace
 
+DbStatus DocView::recordStatus(const DbStatus &st) const {
+	return _db ? _db->recordStatus(st) : st;
+}
+
 DbStatus DocView::encode() {
     std::unique_ptr<FrLock> guard;
     if (_mu) guard = std::make_unique<FrLock>(*_mu);
-    if (!_doc) return dbSetLastError({DbStatusCode::InvalidArgument, "no decoded doc"});
-    if (!_rec) return dbSetLastError({DbStatusCode::InvalidArgument, "no backing record"});
-    if (_rec->meta.removed) return dbSetLastError({DbStatusCode::NotFound, "document removed"});
+    if (!_doc) return recordStatus({DbStatusCode::InvalidArgument, "no decoded doc"});
+    if (!_rec) return recordStatus({DbStatusCode::InvalidArgument, "no backing record"});
+    if (_rec->meta.removed) return recordStatus({DbStatusCode::NotFound, "document removed"});
 
 	// First, measure the size of the new serialization
 	size_t sz = measureMsgPack(_doc->as<JsonVariantConst>());
@@ -82,11 +87,11 @@ DbStatus DocView::encode() {
 		CompareToBufferPrint cmp(_rec->msgpack.data(), _rec->msgpack.size());
 		size_t written = serializeMsgPack(_doc->as<JsonVariantConst>(), cmp);
 		if (written != sz) {
-			return dbSetLastError({DbStatusCode::IoError, "serialize msgpack size mismatch"});
+			return recordStatus({DbStatusCode::IoError, "serialize msgpack size mismatch"});
 		}
 		if (cmp.equal) {
 			_dirtyLocally = false;
-			return dbSetLastError({DbStatusCode::Ok, ""});
+			return recordStatus({DbStatusCode::Ok, ""});
 		}
 		// else: fall through to write new bytes
 	}
@@ -95,12 +100,12 @@ DbStatus DocView::encode() {
 	_rec->msgpack.resize(sz);
 	size_t written = serializeMsgPack(_doc->as<JsonVariantConst>(), _rec->msgpack.data(), _rec->msgpack.size());
 	if (written != sz) {
-		return dbSetLastError({DbStatusCode::IoError, "serialize msgpack size mismatch"});
+		return recordStatus({DbStatusCode::IoError, "serialize msgpack size mismatch"});
 	}
     _rec->meta.updatedAt = nowUtcMs();
     _rec->meta.dirty = true;
     _dirtyLocally = false;
-    return dbSetLastError({DbStatusCode::Ok, ""});
+    return recordStatus({DbStatusCode::Ok, ""});
 }
 
 JsonVariant DocView::operator[](const char *key) {
@@ -160,7 +165,7 @@ JsonObjectConst DocView::asObjectConst() const {
 }
 
 DbStatus DocView::commit() {
-	if (!_doc) return dbSetLastError({DbStatusCode::Ok, "no changes"});
+	if (!_doc) return recordStatus({DbStatusCode::Ok, "no changes"});
 	auto st = encode();
 	if (!st.ok()) return st;
 	if (_commitSink && _rec) {
@@ -184,16 +189,20 @@ DocRef DocView::getRef(const char *field) const {
 
 DocView DocView::populate(const char *field, uint8_t maxDepth) const {
 	if (maxDepth == 0) {
-		dbSetLastError({DbStatusCode::InvalidArgument, "max depth reached"});
-		return DocView(nullptr);
+		recordStatus({DbStatusCode::InvalidArgument, "max depth reached"});
+		return DocView(nullptr, nullptr, nullptr, _db);
 	}
 	auto ref = getRef(field);
 	if (!ref.valid()) {
-		dbSetLastError({DbStatusCode::InvalidArgument, "field not DocRef"});
-		return DocView(nullptr);
+		recordStatus({DbStatusCode::InvalidArgument, "field not DocRef"});
+		return DocView(nullptr, nullptr, nullptr, _db);
 	}
-	auto fr = db.findById(ref.collection, ref.id);
-	if (!fr.status.ok()) return DocView(nullptr);
+	if (!_db) {
+		recordStatus({DbStatusCode::InvalidArgument, "database context unavailable"});
+		return DocView(nullptr, nullptr, nullptr, _db);
+	}
+	auto fr = _db->findById(ref.collection, ref.id);
+	if (!fr.status.ok()) return DocView(nullptr, nullptr, nullptr, _db);
 	if (maxDepth > 1) {
 		for (auto kv : fr.value.asObjectConst()) {
 			auto nested = docRefFromJson(kv.value());

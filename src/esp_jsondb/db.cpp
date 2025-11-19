@@ -1,8 +1,6 @@
 #include "db.h"
 #include "utils/fs_utils.h"
 #include <StreamUtils.h>
-
-static DataBase *s_self = nullptr;
 FrMutex g_fsMutex; // definition of global FS mutex
 
 DbStatus DataBase::ensureFsReady() {
@@ -23,7 +21,6 @@ DbStatus DataBase::ensureFsReady() {
 
 DataBase::~DataBase() {
 	stopSyncTaskUnlocked();
-	s_self = nullptr;
 }
 
 DbStatus DataBase::init(const char *baseDir, const SyncConfig &cfg) {
@@ -51,7 +48,6 @@ DbStatus DataBase::init(const char *baseDir, const SyncConfig &cfg) {
 	}
 
 	if (_cfg.autosync) {
-		s_self = this;
 		{
 			FrLock lk(_mu);
 			startSyncTaskUnlocked();
@@ -133,7 +129,7 @@ DbResult<Collection *> DataBase::collection(const std::string &name) {
 		auto sit = _schemas.find(name);
 		if (sit != _schemas.end()) sc = sit->second;
 	}
-	auto col = std::make_unique<Collection>(name, sc, _baseDir, _cfg.cacheEnabled, *_fs);
+	auto col = std::make_unique<Collection>(*this, name, sc, _baseDir, _cfg.cacheEnabled, *_fs);
 	auto st = col->loadFromFs(_baseDir);
 	if (!st.ok()) {
 		res.status = setLastError(st);
@@ -205,7 +201,7 @@ DbResult<DocView> DataBase::findById(const std::string &name, const std::string 
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
 		// Return placeholder DocView; caller should check status before use
-		return {cr.status, DocView(nullptr)};
+		return {cr.status, DocView(nullptr, nullptr, nullptr, this)};
 	}
 	return cr.value->findById(id);
 }
@@ -225,7 +221,7 @@ DbResult<DocView> DataBase::findOne(const std::string &name, std::function<bool(
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
 		// Return placeholder DocView; caller should check status before use
-		return {cr.status, DocView(nullptr)};
+		return {cr.status, DocView(nullptr, nullptr, nullptr, this)};
 	}
 	return cr.value->findOne(std::move(pred));
 }
@@ -234,7 +230,7 @@ DbResult<DocView> DataBase::findOne(const std::string &name, const JsonDocument 
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
 		// Return placeholder DocView; caller should check status before use
-		return {cr.status, DocView(nullptr)};
+		return {cr.status, DocView(nullptr, nullptr, nullptr, this)};
 	}
 	return cr.value->findOne(filter);
 }
@@ -519,13 +515,6 @@ JsonDocument DataBase::getDiag() {
 	return doc;
 }
 
-DataBase db;
-
-// Free helper to update database-wide last error from other modules
-DbStatus dbSetLastError(const DbStatus &st) {
-	return db.setLastError(st);
-}
-
 DbStatus DataBase::dropAll() {
 	bool shouldRestart = false;
 	{
@@ -625,7 +614,7 @@ DbStatus DataBase::changeConfig(const SyncConfig &cfg) {
 JsonDocument DataBase::getSnapshot() {
 	JsonDocument snap;
 	if (!_fs) {
-		dbSetLastError({DbStatusCode::IoError, "filesystem not ready"});
+		setLastError({DbStatusCode::IoError, "filesystem not ready"});
 		return snap;
 	}
 	auto colsObj = snap["collections"].to<JsonObject>();

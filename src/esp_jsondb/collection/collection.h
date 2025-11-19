@@ -19,9 +19,12 @@
 #include "../utils/objectId.h"
 #include "../utils/schema.h"
 
+class DataBase;
+
 class Collection {
   public:
-    Collection(const std::string &name,
+    Collection(DataBase &db,
+               const std::string &name,
                const Schema &schema,
                std::string baseDir,
                bool cacheEnabled,
@@ -108,6 +111,7 @@ class Collection {
     }
 
   private:
+	DataBase *_db = nullptr;
 	std::string _name;
 	Schema _schema;
     // Use shared_ptr to keep records alive while views exist
@@ -142,6 +146,9 @@ class Collection {
                                std::function<void(DocView &)> mutator,
                                bool &updated);
     DbStatus removeByIdNoCache(const std::string &id, bool &removed);
+
+	DbStatus recordStatus(const DbStatus &st) const;
+	void emitEvent(DBEventType ev) const;
 };
 
 template <typename Pred>
@@ -153,7 +160,7 @@ DbResult<size_t> Collection::removeMany(Pred &&p) {
             FrLock lk(_mu);
             toErase.reserve(_docs.size());
             for (auto &kv : _docs) {
-                DocView v(kv.second, &_schema, nullptr);
+                DocView v(kv.second, &_schema, nullptr, _db);
                 if (p(v)) {
                     toErase.push_back(kv.first);
                 }
@@ -186,7 +193,7 @@ DbResult<size_t> Collection::removeMany(Pred &&p) {
         res.value = removedCount;
     }
     res.status = {DbStatusCode::Ok, ""};
-    dbSetLastError(res.status);
+    recordStatus(res.status);
     return res;
 }
 
@@ -197,7 +204,7 @@ DbResult<size_t> Collection::updateMany(Pred &&p, Mut &&m) {
     if (_cacheEnabled) {
         FrLock lk(_mu);
         for (auto &kv : _docs) {
-            DocView v(kv.second, &_schema, nullptr);
+            DocView v(kv.second, &_schema, nullptr, _db);
             if (p(v)) {
                 m(v);
                 if (_schema.hasValidate()) {
@@ -250,7 +257,7 @@ DbResult<size_t> Collection::updateMany(Pred &&p, Mut &&m) {
         }
     }
     res.status = {DbStatusCode::Ok, ""};
-    dbSetLastError(res.status);
+    recordStatus(res.status);
     res.value = count;
     return res;
 }
@@ -262,7 +269,7 @@ DbResult<size_t> Collection::updateMany(Mut &&m) {
     if (_cacheEnabled) {
         FrLock lk(_mu);
         for (auto &kv : _docs) {
-            DocView v(kv.second, &_schema, nullptr);
+            DocView v(kv.second, &_schema, nullptr, _db);
             if (m(v)) {
                 if (_schema.hasValidate()) {
                     auto obj = v.asObject();
@@ -317,7 +324,7 @@ DbResult<size_t> Collection::updateMany(Mut &&m) {
         }
     }
     res.status = {DbStatusCode::Ok, ""};
-    dbSetLastError(res.status);
+    recordStatus(res.status);
     res.value = count;
     return res;
 }

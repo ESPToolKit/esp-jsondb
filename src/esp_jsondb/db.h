@@ -114,6 +114,9 @@ class DataBase {
 	// Retrieve last error or success status
 	DbStatus lastError() const { return _lastError; }
 
+	// Allow other components to update diagnostics/error state
+	DbStatus recordStatus(const DbStatus &st) { return setLastError(st); }
+
 	// Diagnostics: number of collections, doc counts, and config
 	JsonDocument getDiag();
 
@@ -161,9 +164,6 @@ class DataBase {
 		if (!st.ok()) emitError(st);
 		return st;
 	}
-
-	// Allow free helper to update status from other modules
-	friend DbStatus dbSetLastError(const DbStatus &st);
 
 	// fs helpers
 	DbStatus ensureFsReady();
