@@ -1,5 +1,7 @@
 #include <ESPJsonDB.h>
 
+static DataBase db;
+
 /**
  * Demonstrates running esp-jsondb with the in-memory cache disabled.
  *
@@ -37,8 +39,8 @@ void setup() {
     // Because the cache is disabled, the following lookup reloads from LittleFS.
     auto fetched = db.findById("events", created.value);
     if (fetched.status.ok()) {
-        const char *kind = fetched.value["type"].as<const char*>();
-        Serial.printf("Reloaded event type: %s\n", kind ? kind : "(null)");
+        std::string kind = fetched.value["type"].as<std::string>();
+        Serial.printf("Reloaded event type: %s\n", kind.empty() ? "(null)" : kind.c_str());
     } else {
         Serial.printf("Reload failed: %s\n", fetched.status.message);
     }

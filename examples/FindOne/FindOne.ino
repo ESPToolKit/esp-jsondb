@@ -1,5 +1,7 @@
 #include <ESPJsonDB.h>
 
+static DataBase db;
+
 // Demonstrates findOne with predicate and with a JSON filter.
 
 void setup() {
@@ -23,7 +25,8 @@ void setup() {
         return doc["status"].as<std::string>() == std::string("online");
     });
     if (online.status.ok()) {
-        Serial.printf("First online: %s\n", online.value["name"].as<const char*>());
+        std::string name = online.value["name"].as<std::string>();
+        Serial.printf("First online: %s\n", name.c_str());
     }
 
     // 2) findOne with JSON filter
@@ -31,9 +34,9 @@ void setup() {
     filter["status"] = "offline";
     auto offline = db.findOne("devices", filter);
     if (offline.status.ok()) {
-        Serial.printf("First offline: %s\n", offline.value["name"].as<const char*>());
+        std::string name = offline.value["name"].as<std::string>();
+        Serial.printf("First offline: %s\n", name.c_str());
     }
 }
 
 void loop() {}
-

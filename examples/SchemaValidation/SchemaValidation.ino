@@ -1,5 +1,7 @@
 #include <ESPJsonDB.h>
 
+static DataBase db;
+
 static ValidationError usersValidate(const JsonObjectConst &doc) {
     if (doc["username"].isNull() || doc["password"].isNull())
         return {false, "username and password are required"};

@@ -1,5 +1,7 @@
 #include <ESPJsonDB.h>
 
+static DataBase db;
+
 void setup() {
     Serial.begin(115200);
 
@@ -36,7 +38,8 @@ void setup() {
         return doc["role"].as<std::string>() == "admin";
     });
     if (firstAdmin.status.ok()) {
-        Serial.printf("First admin email: %s\n", firstAdmin.value["email"].as<const char *>());
+        std::string email = firstAdmin.value["email"].as<std::string>();
+        Serial.printf("First admin email: %s\n", email.c_str());
     } else {
         Serial.println("No admin found");
     }
@@ -46,7 +49,8 @@ void setup() {
     userFilter["role"] = "user";
     auto firstUser = db.findOne("users", userFilter);
     if (firstUser.status.ok()) {
-        Serial.printf("First user email: %s\n", firstUser.value["email"].as<const char *>());
+        std::string email = firstUser.value["email"].as<std::string>();
+        Serial.printf("First user email: %s\n", email.c_str());
     }
 }
 

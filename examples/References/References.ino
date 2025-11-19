@@ -1,6 +1,8 @@
 #include <ESPJsonDB.h>
 #include <esp_jsondb/utils/refs.h>
 
+static DataBase db;
+
 void setup() {
     Serial.begin(115200);
 
@@ -33,7 +35,8 @@ void setup() {
     if (bookFindRes.status.ok()) {
         auto populated = bookFindRes.value.populate("author");
         if (db.lastError().ok()) {
-            Serial.printf("Author: %s\n", populated["name"].as<const char*>());
+            std::string name = populated["name"].as<std::string>();
+            Serial.printf("Author: %s\n", name.c_str());
         }
     }
 

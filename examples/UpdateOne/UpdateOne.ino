@@ -1,5 +1,7 @@
 #include <ESPJsonDB.h>
 
+static DataBase db;
+
 // Demonstrates updateOne with both predicate+mutator and JSON filter+patch.
 
 void setup() {
@@ -55,7 +57,8 @@ void setup() {
     f2["email"] = "newuser@example.com";
     auto foundUpserted = db.findOne("users", f2);
     if (foundUpserted.status.ok()) {
-        Serial.printf("Upserted role: %s\n", foundUpserted.value["role"].as<const char*>());
+        std::string role = foundUpserted.value["role"].as<std::string>();
+        Serial.printf("Upserted role: %s\n", role.c_str());
     }
 }
 

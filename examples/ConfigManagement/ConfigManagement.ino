@@ -1,6 +1,8 @@
 #include <ESPJsonDB.h>
 #include <ctype.h>
 
+static DataBase db;
+
 // Realistic configuration management example demonstrating:
 // - Complex schema with validation
 // - findOne using JSON filter

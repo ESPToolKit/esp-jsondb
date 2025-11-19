@@ -1,5 +1,7 @@
 #include <ESPJsonDB.h>
 
+static DataBase db;
+
 // Demonstrates bulk insert with createMany and reading returned ids.
 
 void setup() {
@@ -36,9 +38,9 @@ void setup() {
     filter["index"] = 3;
     auto f = db.findOne("users", filter);
     if (f.status.ok()) {
-        Serial.printf("Found index=3: %s\n", f.value["email"].as<const char*>());
+        std::string email = f.value["email"].as<std::string>();
+        Serial.printf("Found index=3: %s\n", email.c_str());
     }
 }
 
 void loop() {}
-

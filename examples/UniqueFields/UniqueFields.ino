@@ -1,5 +1,7 @@
 #include <ESPJsonDB.h>
 
+static DataBase db;
+
 // Demonstrates schema-level unique fields on create and update.
 
 void setup() {
@@ -59,9 +61,9 @@ void setup() {
     filter["email"] = "c@x.com";
     auto found = db.findOne("users", filter);
     if (found.status.ok()) {
-        Serial.printf("Found updated user: %s\n", found.value["username"].as<const char*>());
+        std::string username = found.value["username"].as<std::string>();
+        Serial.printf("Found updated user: %s\n", username.c_str());
     }
 }
 
 void loop() {}
-

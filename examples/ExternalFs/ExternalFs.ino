@@ -1,6 +1,8 @@
 #include <SPIFFS.h>
 #include <ESPJsonDB.h>
 
+static DataBase db;
+
 void setup() {
     Serial.begin(115200);
     while (!Serial && millis() < 2000) {
