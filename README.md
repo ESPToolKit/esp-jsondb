@@ -94,9 +94,11 @@ See the sketches under `examples/` for end-to-end flows:
 - Sync + diagnostics: `syncNow()`, `getDiag()` (JSON summary), `getSnapshot()` / `restoreFromSnapshot()` for backups.
 
 `SyncConfig` knobs:
-- `intervalMs`, `taskStack`, `taskPriority`, `coreId` – background autosync cadence & FreeRTOS tuning.
+- `intervalMs`, `stackSize`, `priority`, `coreId` – background autosync cadence & FreeRTOS tuning.
 - `autosync`, `coldSync`, `cacheEnabled` – enable/disable timers and caches.
 - `fs`, `initFileSystem`, `formatOnFail`, `partitionLabel`, `maxOpenFiles` – file system integration; pass your own `fs::FS` if you mount LittleFS elsewhere.
+
+Stack sizes are expressed in bytes.
 
 ## Restrictions
 - Designed for ESP32 + LittleFS. Other platforms/FSes are untested.

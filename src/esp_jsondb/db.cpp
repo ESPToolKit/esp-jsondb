@@ -341,7 +341,7 @@ void DataBase::syncTaskLoop() {
 
 void DataBase::startSyncTaskUnlocked() {
 	if (_syncTask != nullptr) return;
-	xTaskCreatePinnedToCore(&DataBase::syncTaskThunk, "db.sync", _cfg.taskStack, this, _cfg.taskPriority, &_syncTask, _cfg.coreId);
+	xTaskCreatePinnedToCore(&DataBase::syncTaskThunk, "db.sync", _cfg.stackSize, this, _cfg.priority, &_syncTask, _cfg.coreId);
 }
 
 void DataBase::stopSyncTaskUnlocked() {
@@ -507,8 +507,8 @@ JsonDocument DataBase::getDiag() {
 	cfg["formatOnFail"] = cfgCopy.formatOnFail;
 	cfg["maxOpenFiles"] = static_cast<uint32_t>(cfgCopy.maxOpenFiles);
 	cfg["partitionLabel"] = cfgCopy.partitionLabel ? cfgCopy.partitionLabel : nullptr;
-	cfg["taskStack"] = cfgCopy.taskStack;
-	cfg["taskPriority"] = static_cast<uint32_t>(cfgCopy.taskPriority);
+	cfg["stackSize"] = cfgCopy.stackSize;
+	cfg["priority"] = static_cast<uint32_t>(cfgCopy.priority);
 	cfg["coreId"] = static_cast<int32_t>(cfgCopy.coreId);
 
 	setLastError({DbStatusCode::Ok, ""});

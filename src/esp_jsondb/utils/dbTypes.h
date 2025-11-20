@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <FS.h>
+#include <freertos/FreeRTOS.h>
 
 #include <cstdint>
 #include <string>
@@ -21,8 +22,8 @@ enum class DbStatusCode : uint8_t {
 
 struct SyncConfig {
 	uint32_t intervalMs = 2000;
-	uint16_t taskStack = 4096;
-	UBaseType_t taskPriority = 2;
+	uint16_t stackSize = static_cast<uint16_t>(4096 * sizeof(StackType_t));
+	UBaseType_t priority = 2;
 	BaseType_t coreId = tskNO_AFFINITY;
 	bool autosync = true;
 	bool coldSync = false;
