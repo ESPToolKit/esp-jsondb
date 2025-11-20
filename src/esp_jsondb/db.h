@@ -18,9 +18,9 @@
 #include "utils/schema.h"
 #include <ArduinoJson.h>
 
-class DataBase {
+class ESPJsonDB {
   public:
-	~DataBase();
+	~ESPJsonDB();
 	DbStatus init(const char *baseDir = "/db", const SyncConfig &cfg = {});
 	DbStatus registerSchema(const std::string &name, const Schema &s);
 	DbStatus unRegisterSchema(const std::string &name);
@@ -178,7 +178,7 @@ class DataBase {
 };
 
 template <typename Pred>
-DbResult<size_t> DataBase::removeMany(const std::string &collectionName, Pred &&p) {
+DbResult<size_t> ESPJsonDB::removeMany(const std::string &collectionName, Pred &&p) {
 	DbResult<size_t> res{};
 	auto cr = collection(collectionName);
 	if (!cr.status.ok()) {
@@ -189,7 +189,7 @@ DbResult<size_t> DataBase::removeMany(const std::string &collectionName, Pred &&
 }
 
 template <typename Pred, typename Mut, typename>
-DbResult<size_t> DataBase::updateMany(const std::string &collectionName, Pred &&p, Mut &&m) {
+DbResult<size_t> ESPJsonDB::updateMany(const std::string &collectionName, Pred &&p, Mut &&m) {
 	DbResult<size_t> res{};
 	auto cr = collection(collectionName);
 	if (!cr.status.ok()) {
@@ -200,7 +200,7 @@ DbResult<size_t> DataBase::updateMany(const std::string &collectionName, Pred &&
 }
 
 template <typename Mut, typename>
-DbResult<size_t> DataBase::updateMany(const std::string &collectionName, Mut &&m) {
+DbResult<size_t> ESPJsonDB::updateMany(const std::string &collectionName, Mut &&m) {
 	DbResult<size_t> res{};
 	auto cr = collection(collectionName);
 	if (!cr.status.ok()) {
@@ -211,7 +211,7 @@ DbResult<size_t> DataBase::updateMany(const std::string &collectionName, Mut &&m
 }
 
 template <typename Pred, typename>
-DbResult<size_t> DataBase::updateMany(const std::string &collectionName, const JsonDocument &patch, Pred &&p) {
+DbResult<size_t> ESPJsonDB::updateMany(const std::string &collectionName, const JsonDocument &patch, Pred &&p) {
 	DbResult<size_t> res{};
 	auto cr = collection(collectionName);
 	if (!cr.status.ok()) {

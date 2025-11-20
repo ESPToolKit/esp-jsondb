@@ -8,7 +8,7 @@ class DbTester {
     public:
         void init();
     private:
-        DataBase db;
+        ESPJsonDB db;
         void run();
         // Event handlers
         void dbEventHandler(DBEventType evt);

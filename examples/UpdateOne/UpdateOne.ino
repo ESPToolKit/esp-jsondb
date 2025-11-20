@@ -1,6 +1,6 @@
 #include <ESPJsonDB.h>
 
-static DataBase db;
+static ESPJsonDB db;
 
 // Demonstrates updateOne with both predicate+mutator and JSON filter+patch.
 

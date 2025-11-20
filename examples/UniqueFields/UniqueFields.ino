@@ -1,6 +1,6 @@
 #include <ESPJsonDB.h>
 
-static DataBase db;
+static ESPJsonDB db;
 
 // Demonstrates schema-level unique fields on create and update.
 

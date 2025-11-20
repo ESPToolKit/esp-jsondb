@@ -22,7 +22,7 @@ Quick start:
 ```cpp
 #include <ESPJsonDB.h>
 
-DataBase db;
+ESPJsonDB db;
 
 void setup() {
     Serial.begin(115200);

@@ -1,6 +1,6 @@
 #include <ESPJsonDB.h>
 
-static DataBase db;
+static ESPJsonDB db;
 
 static ValidationError usersValidate(const JsonObjectConst &doc) {
     if (doc["username"].isNull() || doc["password"].isNull())

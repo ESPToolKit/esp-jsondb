@@ -1,6 +1,6 @@
 #include <ESPJsonDB.h>
 
-static DataBase db;
+static ESPJsonDB db;
 
 // Demonstrates bulk insert with createMany and reading returned ids.
 

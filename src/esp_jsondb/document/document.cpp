@@ -7,7 +7,7 @@
 DocView::DocView(std::shared_ptr<DocumentRecord> rec,
 				 const Schema *schema,
 				 FrMutex *mu,
-				 DataBase *db,
+				 ESPJsonDB *db,
 				 std::function<DbStatus(const std::shared_ptr<DocumentRecord>&)> commitSink)
 	: _rec(std::move(rec)), _schema(schema), _mu(mu), _db(db), _commitSink(std::move(commitSink)) {}
 

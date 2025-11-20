@@ -1,6 +1,6 @@
 #include <ESPJsonDB.h>
 
-static DataBase db;
+static ESPJsonDB db;
 
 /**
  * Demonstrates running esp-jsondb with the in-memory cache disabled.

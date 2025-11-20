@@ -3,7 +3,7 @@
 #include "../utils/fs_utils.h"
 #include "../utils/time_utils.h"
 
-Collection::Collection(DataBase &db,
+Collection::Collection(ESPJsonDB &db,
                        const std::string &name,
                        const Schema &schema,
                        std::string baseDir,

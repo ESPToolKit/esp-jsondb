@@ -19,11 +19,11 @@
 #include "../utils/objectId.h"
 #include "../utils/schema.h"
 
-class DataBase;
+class ESPJsonDB;
 
 class Collection {
   public:
-    Collection(DataBase &db,
+    Collection(ESPJsonDB &db,
                const std::string &name,
                const Schema &schema,
                std::string baseDir,
@@ -93,7 +93,7 @@ class Collection {
 	bool isDirty() const { return _dirty; }
 	void clearDirty() { _dirty = false; }
 
-	// Persistence hooks used by DataBase
+	// Persistence hooks used by ESPJsonDB
 	DbStatus loadFromFs(const std::string &baseDir);
 	// Flush pending writes/deletes to FS. Sets didWork=true if any file was
 	// written or removed during this call.
@@ -111,7 +111,7 @@ class Collection {
     }
 
   private:
-	DataBase *_db = nullptr;
+	ESPJsonDB *_db = nullptr;
 	std::string _name;
 	Schema _schema;
     // Use shared_ptr to keep records alive while views exist

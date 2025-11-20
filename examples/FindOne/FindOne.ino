@@ -1,6 +1,6 @@
 #include <ESPJsonDB.h>
 
-static DataBase db;
+static ESPJsonDB db;
 
 // Demonstrates findOne with predicate and with a JSON filter.
 

@@ -1,7 +1,7 @@
 #include <SPIFFS.h>
 #include <ESPJsonDB.h>
 
-static DataBase db;
+static ESPJsonDB db;
 
 void setup() {
     Serial.begin(115200);

@@ -3,7 +3,7 @@
 #include <StreamUtils.h>
 FrMutex g_fsMutex; // definition of global FS mutex
 
-DbStatus DataBase::ensureFsReady() {
+DbStatus ESPJsonDB::ensureFsReady() {
 	_fs = _cfg.fs ? _cfg.fs : &LittleFS;
 	if (!_fs) {
 		return setLastError({DbStatusCode::InvalidArgument, "filesystem handle is null"});
@@ -19,11 +19,11 @@ DbStatus DataBase::ensureFsReady() {
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
-DataBase::~DataBase() {
+ESPJsonDB::~ESPJsonDB() {
 	stopSyncTaskUnlocked();
 }
 
-DbStatus DataBase::init(const char *baseDir, const SyncConfig &cfg) {
+DbStatus ESPJsonDB::init(const char *baseDir, const SyncConfig &cfg) {
 	_baseDir = baseDir ? baseDir : std::string("/db");
 	// Normalize baseDir: ensure leading '/', drop trailing '/'
 	if (_baseDir.empty()) {
@@ -56,35 +56,35 @@ DbStatus DataBase::init(const char *baseDir, const SyncConfig &cfg) {
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
-DbStatus DataBase::registerSchema(const std::string &name, const Schema &s) {
+DbStatus ESPJsonDB::registerSchema(const std::string &name, const Schema &s) {
 	FrLock lk(_mu);
 	_schemas[name] = s;
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
-DbStatus DataBase::unRegisterSchema(const std::string &name) {
+DbStatus ESPJsonDB::unRegisterSchema(const std::string &name) {
 	FrLock lk(_mu);
 	_schemas.erase(name);
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
-void DataBase::onEvent(const std::function<void(DBEventType)> &cb) {
+void ESPJsonDB::onEvent(const std::function<void(DBEventType)> &cb) {
 	FrLock lk(_mu);
 	_eventCbs.push_back(cb);
 }
 
-void DataBase::onError(const std::function<void(const DbStatus &)> &cb) {
+void ESPJsonDB::onError(const std::function<void(const DbStatus &)> &cb) {
 	FrLock lk(_mu);
 	_errorCbs.push_back(cb);
 }
 
-void DataBase::onSync(const std::function<void()> &cb) {
+void ESPJsonDB::onSync(const std::function<void()> &cb) {
 	// Wrap sync-only callback into event form
 	if (!cb) return;
 	onEvent([cb](DBEventType ev) { if (ev == DBEventType::Sync) cb(); });
 }
 
-DbStatus DataBase::dropCollection(const std::string &name) {
+DbStatus ESPJsonDB::dropCollection(const std::string &name) {
 	FrLock lk(_mu);
 	auto it = _cols.find(name);
 	if (it != _cols.end()) {
@@ -112,7 +112,7 @@ DbStatus DataBase::dropCollection(const std::string &name) {
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
-DbResult<Collection *> DataBase::collection(const std::string &name) {
+DbResult<Collection *> ESPJsonDB::collection(const std::string &name) {
 	DbResult<Collection *> res{};
 	{
 		FrLock lk(_mu);
@@ -150,15 +150,15 @@ DbResult<Collection *> DataBase::collection(const std::string &name) {
 }
 
 // Arduino-friendly overload
-DbResult<Collection *> DataBase::collection(const String &name) {
+DbResult<Collection *> ESPJsonDB::collection(const String &name) {
 	return collection(std::string{name.c_str()});
 }
 
-DbResult<Collection *> DataBase::collection(const char *name) {
+DbResult<Collection *> ESPJsonDB::collection(const char *name) {
 	return collection(std::string{name ? name : ""});
 }
 
-DbResult<std::string> DataBase::create(const std::string &name, JsonObjectConst doc) {
+DbResult<std::string> ESPJsonDB::create(const std::string &name, JsonObjectConst doc) {
 	DbResult<std::string> res{};
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
@@ -168,7 +168,7 @@ DbResult<std::string> DataBase::create(const std::string &name, JsonObjectConst 
 	return cr.value->create(doc);
 }
 
-DbResult<std::string> DataBase::create(const std::string &name, const JsonDocument &doc) {
+DbResult<std::string> ESPJsonDB::create(const std::string &name, const JsonDocument &doc) {
 	// Ensure the provided document is a JSON object (not an array/scalar)
 	if (!doc.is<JsonObject>()) {
 		DbResult<std::string> res{};
@@ -178,7 +178,7 @@ DbResult<std::string> DataBase::create(const std::string &name, const JsonDocume
 	return create(name, doc.as<JsonObjectConst>());
 }
 
-DbResult<std::vector<std::string>> DataBase::createMany(const std::string &name, JsonArrayConst arr) {
+DbResult<std::vector<std::string>> ESPJsonDB::createMany(const std::string &name, JsonArrayConst arr) {
 	DbResult<std::vector<std::string>> res{};
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
@@ -188,7 +188,7 @@ DbResult<std::vector<std::string>> DataBase::createMany(const std::string &name,
 	return cr.value->createMany(arr);
 }
 
-DbResult<std::vector<std::string>> DataBase::createMany(const std::string &name, const JsonDocument &arrDoc) {
+DbResult<std::vector<std::string>> ESPJsonDB::createMany(const std::string &name, const JsonDocument &arrDoc) {
 	if (!arrDoc.is<JsonArray>()) {
 		DbResult<std::vector<std::string>> res{};
 		res.status = setLastError({DbStatusCode::InvalidArgument, "document must be an array of objects"});
@@ -197,7 +197,7 @@ DbResult<std::vector<std::string>> DataBase::createMany(const std::string &name,
 	return createMany(name, arrDoc.as<JsonArrayConst>());
 }
 
-DbResult<DocView> DataBase::findById(const std::string &name, const std::string &id) {
+DbResult<DocView> ESPJsonDB::findById(const std::string &name, const std::string &id) {
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
 		// Return placeholder DocView; caller should check status before use
@@ -206,7 +206,7 @@ DbResult<DocView> DataBase::findById(const std::string &name, const std::string 
 	return cr.value->findById(id);
 }
 
-DbResult<std::vector<DocView>> DataBase::findMany(const std::string &name,
+DbResult<std::vector<DocView>> ESPJsonDB::findMany(const std::string &name,
 												  std::function<bool(const DocView &)> pred) {
 	DbResult<std::vector<DocView>> res{};
 	auto cr = collection(name);
@@ -217,7 +217,7 @@ DbResult<std::vector<DocView>> DataBase::findMany(const std::string &name,
 	return cr.value->findMany(std::move(pred));
 }
 
-DbResult<DocView> DataBase::findOne(const std::string &name, std::function<bool(const DocView &)> pred) {
+DbResult<DocView> ESPJsonDB::findOne(const std::string &name, std::function<bool(const DocView &)> pred) {
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
 		// Return placeholder DocView; caller should check status before use
@@ -226,7 +226,7 @@ DbResult<DocView> DataBase::findOne(const std::string &name, std::function<bool(
 	return cr.value->findOne(std::move(pred));
 }
 
-DbResult<DocView> DataBase::findOne(const std::string &name, const JsonDocument &filter) {
+DbResult<DocView> ESPJsonDB::findOne(const std::string &name, const JsonDocument &filter) {
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
 		// Return placeholder DocView; caller should check status before use
@@ -235,7 +235,7 @@ DbResult<DocView> DataBase::findOne(const std::string &name, const JsonDocument 
 	return cr.value->findOne(filter);
 }
 
-DbStatus DataBase::updateOne(const std::string &name,
+DbStatus ESPJsonDB::updateOne(const std::string &name,
 							 std::function<bool(const DocView &)> pred,
 							 std::function<void(DocView &)> mutator,
 							 bool create) {
@@ -246,7 +246,7 @@ DbStatus DataBase::updateOne(const std::string &name,
 	return cr.value->updateOne(std::move(pred), std::move(mutator), create);
 }
 
-DbStatus DataBase::updateOne(const std::string &name,
+DbStatus ESPJsonDB::updateOne(const std::string &name,
 							 const JsonDocument &filter,
 							 const JsonDocument &patch,
 							 bool create) {
@@ -257,7 +257,7 @@ DbStatus DataBase::updateOne(const std::string &name,
 	return cr.value->updateOne(filter, patch, create);
 }
 
-DbStatus DataBase::updateById(const std::string &name, const std::string &id, std::function<void(DocView &)> mutator) {
+DbStatus ESPJsonDB::updateById(const std::string &name, const std::string &id, std::function<void(DocView &)> mutator) {
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
 		return cr.status;
@@ -265,7 +265,7 @@ DbStatus DataBase::updateById(const std::string &name, const std::string &id, st
 	return cr.value->updateById(id, std::move(mutator));
 }
 
-DbStatus DataBase::removeById(const std::string &name, const std::string &id) {
+DbStatus ESPJsonDB::removeById(const std::string &name, const std::string &id) {
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
 		return cr.status;
@@ -273,7 +273,7 @@ DbStatus DataBase::removeById(const std::string &name, const std::string &id) {
 	return cr.value->removeById(id);
 }
 
-DbResult<size_t> DataBase::updateMany(const std::string &collectionName,
+DbResult<size_t> ESPJsonDB::updateMany(const std::string &collectionName,
 									  const JsonDocument &patch,
 									  const JsonDocument &filter) {
 	DbResult<size_t> res{};
@@ -285,7 +285,7 @@ DbResult<size_t> DataBase::updateMany(const std::string &collectionName,
 	return cr.value->updateMany(patch, filter);
 }
 
-DbStatus DataBase::syncNow() {
+DbStatus ESPJsonDB::syncNow() {
 	// Snapshot work under lock
 	std::vector<std::string> colsToDrop;
 	std::vector<Collection *> cols;
@@ -327,24 +327,24 @@ DbStatus DataBase::syncNow() {
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
-void DataBase::syncTaskThunk(void *arg) {
-	auto *self = static_cast<DataBase *>(arg);
+void ESPJsonDB::syncTaskThunk(void *arg) {
+	auto *self = static_cast<ESPJsonDB *>(arg);
 	self->syncTaskLoop();
 }
 
-void DataBase::syncTaskLoop() {
+void ESPJsonDB::syncTaskLoop() {
 	for (;;) {
 		vTaskDelay(pdMS_TO_TICKS(_cfg.intervalMs));
 		(void)syncNow();
 	}
 }
 
-void DataBase::startSyncTaskUnlocked() {
+void ESPJsonDB::startSyncTaskUnlocked() {
 	if (_syncTask != nullptr) return;
-	xTaskCreatePinnedToCore(&DataBase::syncTaskThunk, "db.sync", _cfg.stackSize, this, _cfg.priority, &_syncTask, _cfg.coreId);
+	xTaskCreatePinnedToCore(&ESPJsonDB::syncTaskThunk, "db.sync", _cfg.stackSize, this, _cfg.priority, &_syncTask, _cfg.coreId);
 }
 
-void DataBase::stopSyncTaskUnlocked() {
+void ESPJsonDB::stopSyncTaskUnlocked() {
 	if (_syncTask) {
 		TaskHandle_t t = _syncTask;
 		_syncTask = nullptr;
@@ -410,7 +410,7 @@ static void removeTree(fs::FS &fsImpl, const std::string &path) {
 }
 } // namespace
 
-DbStatus DataBase::removeCollectionDir(const std::string &name) {
+DbStatus ESPJsonDB::removeCollectionDir(const std::string &name) {
 	std::string dir = _baseDir;
 	if (!dir.empty() && dir.back() != '/') dir += '/';
 	dir += name;
@@ -418,7 +418,7 @@ DbStatus DataBase::removeCollectionDir(const std::string &name) {
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
-void DataBase::emitEvent(DBEventType ev) {
+void ESPJsonDB::emitEvent(DBEventType ev) {
 	std::vector<std::function<void(DBEventType)>> callbacks;
 	{
 		FrLock lk(_mu);
@@ -429,7 +429,7 @@ void DataBase::emitEvent(DBEventType ev) {
 	}
 }
 
-void DataBase::emitError(const DbStatus &st) {
+void ESPJsonDB::emitError(const DbStatus &st) {
 	std::vector<std::function<void(const DbStatus &)>> callbacks;
 	{
 		FrLock lk(_mu);
@@ -440,7 +440,7 @@ void DataBase::emitError(const DbStatus &st) {
 	}
 }
 
-DbStatus DataBase::preloadCollectionsFromFs() {
+DbStatus ESPJsonDB::preloadCollectionsFromFs() {
 	auto names = getAllCollectionName();
 	for (const auto &name : names) {
 		if (name.empty()) continue;
@@ -452,7 +452,7 @@ DbStatus DataBase::preloadCollectionsFromFs() {
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
-JsonDocument DataBase::getDiag() {
+JsonDocument ESPJsonDB::getDiag() {
 	// Build diagnostics from cached FS snapshot, overlapped with live loaded collections
 	// No filesystem access here.
 	JsonDocument doc;
@@ -515,7 +515,7 @@ JsonDocument DataBase::getDiag() {
 	return doc;
 }
 
-DbStatus DataBase::dropAll() {
+DbStatus ESPJsonDB::dropAll() {
 	bool shouldRestart = false;
 	{
 		FrLock lk(_mu);
@@ -555,7 +555,7 @@ DbStatus DataBase::dropAll() {
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
-std::vector<std::string> DataBase::getAllCollectionName() {
+std::vector<std::string> ESPJsonDB::getAllCollectionName() {
 	std::vector<std::string> names;
 	// Use a set to avoid duplicates
 	std::map<std::string, bool> seen;
@@ -583,7 +583,7 @@ std::vector<std::string> DataBase::getAllCollectionName() {
 	return names;
 }
 
-DbStatus DataBase::changeConfig(const SyncConfig &cfg) {
+DbStatus ESPJsonDB::changeConfig(const SyncConfig &cfg) {
 	bool doColdSync = cfg.coldSync;
 	bool shouldStart = false;
 	// Stop existing task if running and apply new config
@@ -611,7 +611,7 @@ DbStatus DataBase::changeConfig(const SyncConfig &cfg) {
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
-JsonDocument DataBase::getSnapshot() {
+JsonDocument ESPJsonDB::getSnapshot() {
 	JsonDocument snap;
 	if (!_fs) {
 		setLastError({DbStatusCode::IoError, "filesystem not ready"});
@@ -665,7 +665,7 @@ JsonDocument DataBase::getSnapshot() {
 	return snap;
 }
 
-DbStatus DataBase::restoreFromSnapshot(const JsonDocument &snapshot) {
+DbStatus ESPJsonDB::restoreFromSnapshot(const JsonDocument &snapshot) {
 	// Validate snapshot structure
 	auto cols = snapshot["collections"].as<JsonObjectConst>();
 	if (cols.isNull()) {
@@ -741,7 +741,7 @@ DbStatus DataBase::restoreFromSnapshot(const JsonDocument &snapshot) {
 }
 
 // Private: expensive FS scan; called on init and after successful sync
-void DataBase::refreshDiagFromFs() {
+void ESPJsonDB::refreshDiagFromFs() {
 	if (!_fs) return;
 	std::map<std::string, uint32_t> perCol;
 	uint32_t colCount = 0;
