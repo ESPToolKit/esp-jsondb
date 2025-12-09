@@ -1,6 +1,6 @@
 {
   "name": "ESPJsonDB",
-  "version": "1.0.1",
+  "version": "1.0.4",
   "description": "Lightweight JSON document database for ESP32 (Arduino). MongoDB-like API with optional autosync to LittleFS.",
   "keywords": [
     "esp32",
