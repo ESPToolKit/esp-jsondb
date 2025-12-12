@@ -7,7 +7,7 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 ## [Unreleased]
 - No changes yet.
 
-## [1.0.4] - 2025-09-22
+## [1.0.4] - 2025-09-25
 ### Added
 - `SyncConfig::cacheEnabled` toggle and the supporting persistence path so the database can run without the RAM cache; includes a `CacheDisabled` example sketch.
 - `SyncConfig::coldSync` option to preload collections from the filesystem during `init()` and `changeConfig()` when warm cache is disabled.
