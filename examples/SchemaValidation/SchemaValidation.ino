@@ -1,8 +1,8 @@
 #include <ESPJsonDB.h>
 
-static ESPJsonDB db;
+ESPJsonDB db;
 
-static ValidationError usersValidate(const JsonObjectConst &doc) {
+static ValidationError usersValidate(const JsonObjectConst& doc) {
     if (doc["username"].isNull() || doc["password"].isNull())
         return {false, "username and password are required"};
     return {true, ""};
@@ -22,8 +22,7 @@ void setup() {
         {"username", FieldType::String},
         {"role", FieldType::String, "user"},
         {"password", FieldType::String},
-        {"age", FieldType::Int}
-    };
+        {"age", FieldType::Int}};
     userSchema.validate = usersValidate;
     db.registerSchema("users", userSchema);
 

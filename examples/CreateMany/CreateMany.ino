@@ -1,6 +1,6 @@
 #include <ESPJsonDB.h>
 
-static ESPJsonDB db;
+ESPJsonDB db;
 
 // Demonstrates bulk insert with createMany and reading returned ids.
 
@@ -29,7 +29,7 @@ void setup() {
     }
 
     Serial.printf("Inserted %u documents\n", (unsigned)res.value.size());
-    for (auto &id : res.value) {
+    for (auto& id : res.value) {
         Serial.printf(" - _id: %s\n", id.c_str());
     }
 

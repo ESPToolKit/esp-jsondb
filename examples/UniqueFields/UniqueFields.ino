@@ -1,6 +1,6 @@
 #include <ESPJsonDB.h>
 
-static ESPJsonDB db;
+ESPJsonDB db;
 
 // Demonstrates schema-level unique fields on create and update.
 
@@ -15,10 +15,9 @@ void setup() {
     // Define a schema where email and username must be unique
     Schema userSchema;
     userSchema.fields = {
-        {"email",    FieldType::String, nullptr, true}, // unique
-        {"username", FieldType::String, nullptr, true}, // unique
-        {"role",     FieldType::String, "user"}
-    };
+        {"email", FieldType::String, nullptr, true},     // unique
+        {"username", FieldType::String, nullptr, true},  // unique
+        {"role", FieldType::String, "user"}};
     db.registerSchema("users", userSchema);
 
     // Create first user
@@ -45,13 +44,13 @@ void setup() {
     if (!r2.status.ok()) return;
 
     // Try to update u2's email to an existing one (should fail unique check)
-    auto stFail = db.updateById("users", r2.value, [](DocView &v){
+    auto stFail = db.updateById("users", r2.value, [](DocView& v) {
         v["email"].set("a@x.com");
     });
     Serial.printf("Update to duplicate email: %s\n", stFail.ok() ? "OK (unexpected)" : stFail.message);
 
     // Update u2's email to a new unique value (should succeed)
-    auto stOk = db.updateById("users", r2.value, [](DocView &v){
+    auto stOk = db.updateById("users", r2.value, [](DocView& v) {
         v["email"].set("c@x.com");
     });
     Serial.printf("Update to new email: %s\n", stOk.ok() ? "OK" : stOk.message);

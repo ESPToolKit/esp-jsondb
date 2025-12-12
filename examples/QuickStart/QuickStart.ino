@@ -1,6 +1,6 @@
 #include <ESPJsonDB.h>
 
-static ESPJsonDB db;
+ESPJsonDB db;
 
 void setup() {
     Serial.begin(115200);
@@ -14,11 +14,11 @@ void setup() {
         return;
     }
 
-    db.onEvent([](DBEventType event){
+    db.onEvent([](DBEventType event) {
         Serial.printf("Event: %s\n", dbEventTypeToString(event));
     });
 
-    db.onError([](const DbStatus &status){
+    db.onError([](const DbStatus& status) {
         Serial.printf("Error: %s\n", status.message);
     });
 

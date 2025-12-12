@@ -1,7 +1,7 @@
 #include <ESPJsonDB.h>
 #include <ctype.h>
 
-static ESPJsonDB db;
+ESPJsonDB db;
 
 // Realistic configuration management example demonstrating:
 // - Complex schema with validation
@@ -9,10 +9,10 @@ static ESPJsonDB db;
 // - getOr<T> with sensible defaults
 // - updateOne with upsert=true to create or update config
 
-static const char* CONF_COLLECTION = "config";
+const char* CONF_COLLECTION = "config";
 
 // Simple validation helpers
-static bool validHostname(const char* s) {
+bool validHostname(const char* s) {
     if (!s) return false;
     size_t n = strlen(s);
     if (n == 0 || n > 32) return false;
@@ -23,20 +23,20 @@ static bool validHostname(const char* s) {
     return true;
 }
 
-static bool validSsid(const char* s) {
+bool validSsid(const char* s) {
     if (!s) return false;
     size_t n = strlen(s);
     return n > 0 && n <= 32;
 }
 
-static bool validPassword(const char* s) {
+bool validPassword(const char* s) {
     if (!s) return false;
     size_t n = strlen(s);
     // allow open networks (empty) or WPA(8..63)
     return n == 0 || (n >= 8 && n <= 63);
 }
 
-static ValidationError netConfigValidate(const JsonObjectConst &doc) {
+ValidationError netConfigValidate(const JsonObjectConst &doc) {
     // Require a confType matching this schema
     const char* confType = doc["confType"].as<const char*>();
     if (!confType || strcmp(confType, "netConf") != 0) {
@@ -61,7 +61,7 @@ static ValidationError netConfigValidate(const JsonObjectConst &doc) {
         }
         if (strcmp(mode, "static") == 0) {
             if (!ipCfg["ip"].is<const char*>() || !ipCfg["gw"].is<const char*>() || !ipCfg["mask"].is<const char*>()) {
-                return {false, "static ipConfig requires ip, gw, mask"};
+                return {false, "ipConfig requires ip, gw, mask"};
             }
         }
     }

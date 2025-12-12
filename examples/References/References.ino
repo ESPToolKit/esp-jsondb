@@ -1,7 +1,7 @@
 #include <ESPJsonDB.h>
 #include <esp_jsondb/utils/refs.h>
 
-static ESPJsonDB db;
+ESPJsonDB db;
 
 void setup() {
     Serial.begin(115200);

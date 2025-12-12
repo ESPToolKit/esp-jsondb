@@ -1,6 +1,6 @@
 #include <ESPJsonDB.h>
 
-static ESPJsonDB db;
+ESPJsonDB db;
 
 // Demonstrates findOne with predicate and with a JSON filter.
 
@@ -21,7 +21,7 @@ void setup() {
     }
 
     // 1) findOne with predicate
-    auto online = db.findOne("devices", [](const DocView &doc) {
+    auto online = db.findOne("devices", [](const DocView& doc) {
         return doc["status"].as<std::string>() == std::string("online");
     });
     if (online.status.ok()) {

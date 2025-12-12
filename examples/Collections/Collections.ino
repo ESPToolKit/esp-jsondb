@@ -1,6 +1,6 @@
 #include <ESPJsonDB.h>
 
-static ESPJsonDB db;
+ESPJsonDB db;
 
 void setup() {
     Serial.begin(115200);

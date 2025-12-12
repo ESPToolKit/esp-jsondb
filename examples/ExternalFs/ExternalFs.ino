@@ -1,7 +1,7 @@
-#include <SPIFFS.h>
 #include <ESPJsonDB.h>
+#include <SPIFFS.h>
 
-static ESPJsonDB db;
+ESPJsonDB db;
 
 void setup() {
     Serial.begin(115200);
@@ -18,9 +18,9 @@ void setup() {
     }
 
     SyncConfig syncCfg;
-    syncCfg.fs = &SPIFFS;        // use the already-mounted SPIFFS instance
-    syncCfg.initFileSystem = false; // skip internal LittleFS.begin()
-    syncCfg.autosync = false;   // we'll call syncNow() manually for clarity
+    syncCfg.fs = &SPIFFS;            // use the already-mounted SPIFFS instance
+    syncCfg.initFileSystem = false;  // skip internal LittleFS.begin()
+    syncCfg.autosync = false;        // we'll call syncNow() manually for clarity
 
     auto initStatus = db.init("/external_db", syncCfg);
     if (!initStatus.ok()) {

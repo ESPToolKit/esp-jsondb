@@ -1,6 +1,6 @@
 #include <ESPJsonDB.h>
 
-static ESPJsonDB db;
+ESPJsonDB db;
 
 // Demonstrates updateOne with both predicate+mutator and JSON filter+patch.
 
@@ -25,14 +25,13 @@ void setup() {
     // 1) updateOne with predicate + mutator (increment a counter)
     auto st1 = db.updateOne(
         "users",
-        [&](const DocView &v) {
-            return v["email"].as<std::string>() == std::string("user@example.com"); // match by email
+        [&](const DocView& v) {
+            return v["email"].as<std::string>() == std::string("user@example.com");  // match by email
         },
-        [&](DocView &v) {
+        [&](DocView& v) {
             int visits = v["visits"].as<int>();
             v["visits"].set(visits + 1);
-        }
-    );
+        });
     Serial.printf("updateOne (predicate/mutator): %s\n", st1.ok() ? "OK" : st1.message);
 
     // 2) updateOne with JSON filter + patch (upsert=true)
@@ -48,7 +47,7 @@ void setup() {
     Serial.printf("updateOne (filter/patch upsert): %s\n", st2.ok() ? "OK" : st2.message);
 
     // Verify results
-    auto foundExisting = db.findOne("users", [&](const DocView &v){ return v["email"].as<std::string>() == std::string("user@example.com"); });
+    auto foundExisting = db.findOne("users", [&](const DocView& v) { return v["email"].as<std::string>() == std::string("user@example.com"); });
     if (foundExisting.status.ok()) {
         Serial.printf("Existing visits: %d\n", foundExisting.value["visits"].as<int>());
     }
