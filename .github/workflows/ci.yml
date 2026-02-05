@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        board: [esp32dev, esp32-s3-devkitc-1, esp32-c3-devkitm-1]
+        board: [esp32dev, esp32-s3-devkitc-1, esp32-c3-devkitm-1, esp32-p4-evboard]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,7 +20,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.13'
 
       - name: Cache PlatformIO
         uses: actions/cache@v4
@@ -30,8 +30,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-platformio-
 
-      - name: Install PlatformIO
-        run: pip install --upgrade platformio
+      - name: Install PIOArduino Core
+        run: python -m pip install --upgrade https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.18.zip
+
+      - name: Install PIOArduino ESP32 Platform
+        run: pio platform install https://github.com/pioarduino/platform-espressif32.git
 
       - name: Build library examples (ESP32 Arduino)
         run: |
@@ -43,6 +46,7 @@ jobs:
               pio ci "$d" \
                 --board ${{ matrix.board }} \
                 --lib="." \
+                --project-option "platform=https://github.com/pioarduino/platform-espressif32.git" \
                 --project-option "build_unflags=-std=gnu++11" \
                 --project-option "build_flags=-std=gnu++17"
             fi
