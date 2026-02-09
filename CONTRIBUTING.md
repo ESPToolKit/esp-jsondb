@@ -118,7 +118,7 @@ Please keep these in mind when contributing:
 3. **Filesystem access is serialized**  
    - LittleFS operations must be guarded by the **global FS mutex** (use `FrLock` with `g_fsMutex` when touching FS).
 4. **Autosync task (FreeRTOS)**  
-   - The DB may run a background task that flushes dirty documents every `intervalMs`. Keep callbacks **non-blocking**; tune stack/priority/core via `SyncConfig`.
+   - The DB may run a background task that flushes dirty documents every `intervalMs`. Keep callbacks **non-blocking**; tune stack/priority/core via `ESPJsonDBConfig`.
 5. **On-disk layout & atomic writes**  
    - Documents are saved as `<id>.mp` under `/baseDir/<collection>/`. Writes should be **atomic**: write to `*.tmp` then `rename()`.
 6. **Validation hooks**  
@@ -170,7 +170,7 @@ Before opening a PR, verify:
 - [ ] No exceptions, no RTTI-specific tricks, no `assert()` crashes in production code.
 - [ ] All FS access under the **global FS mutex**; no races in multi-task contexts.
 - [ ] Validation hooks called on create/update; failures return a proper status.
-- [ ] Autosync task (`SyncConfig`) defaults sane; no blocking inside event callbacks.
+- [ ] Autosync task (`ESPJsonDBConfig`) defaults sane; no blocking inside event callbacks.
 - [ ] Docs updated: README snippets, new example usage if API changed.
 - [ ] Added/updated an example when introducing a new feature.
 - [ ] If partitions changed, include `partitions.csv` and update `platformio.ini`.
@@ -182,7 +182,7 @@ Before opening a PR, verify:
 - Examples live under `examples/YourExample/YourExample.ino` (Arduino format).  
 - You can also create **PlatformIO example projects** under `examples/pio/YourExample/` with their own `platformio.ini` if needed.
 - Keep examples small, focused, and runnable:
-  - Minimal board setup (`Serial`, LittleFS begin), DB init with `SyncConfig`.
+  - Minimal board setup (`Serial`, LittleFS begin), DB init with `ESPJsonDBConfig`.
   - One clear concept (schema validation, bulk updates, references).
   - Short serial logs to demonstrate output.
   - A header comment with purpose and steps.

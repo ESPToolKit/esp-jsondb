@@ -5,7 +5,7 @@ ESPJsonDB db;
 void setup() {
     Serial.begin(115200);
 
-    SyncConfig syncCfg;
+    ESPJsonDBConfig syncCfg;
     syncCfg.intervalMs = 3000;  // autosync every 3s
     syncCfg.autosync = true;
 

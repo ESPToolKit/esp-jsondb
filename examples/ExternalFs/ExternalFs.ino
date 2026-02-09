@@ -17,7 +17,7 @@ void setup() {
         return;
     }
 
-    SyncConfig syncCfg;
+    ESPJsonDBConfig syncCfg;
     syncCfg.fs = &SPIFFS;            // use the already-mounted SPIFFS instance
     syncCfg.initFileSystem = false;  // skip internal LittleFS.begin()
     syncCfg.autosync = false;        // we'll call syncNow() manually for clarity

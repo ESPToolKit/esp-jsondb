@@ -10,7 +10,7 @@ A lightweight document database for ESP32 devices. ESPJsonDB borrows the ergonom
 ## Features
 - Simple, mongoose-like API for embedded projects (create/update/remove/find with predicates or JSON filters).
 - Optional in-memory cache with dirty-document tracking and change detection to avoid needless flash I/O.
-- Automatic LittleFS synchronisation on a background FreeRTOS task (`SyncConfig` controls interval, stack, priority, and cache usage).
+- Automatic LittleFS synchronisation on a background FreeRTOS task (`ESPJsonDBConfig` controls interval, stack, priority, and cache usage).
 - MessagePack compression + StreamUtils for efficient read/write pipelines.
 - Schema registry with required fields, defaults, type validation, and collection-level unique constraints.
 - Event + error callbacks so firmware can observe sync cycles or take action when validation fails.
@@ -27,7 +27,7 @@ ESPJsonDB db;
 void setup() {
     Serial.begin(115200);
 
-    SyncConfig cfg;
+    ESPJsonDBConfig cfg;
     cfg.intervalMs = 3000;  // autosync every 3s
     cfg.autosync = true;
 
@@ -82,7 +82,7 @@ See the sketches under `examples/` for end-to-end flows:
 - Unique constraints and validators run inside write operations. Long-running validators will increase latency for the calling task.
 
 ## API Reference
-- `DbStatus init(const char* baseDir = "/db", const SyncConfig& cfg = {})` – mount LittleFS (`cfg.initFileSystem`), create the autosync task (optional), and prime diagnostics.
+- `DbStatus init(const char* baseDir = "/db", const ESPJsonDBConfig& cfg = {})` – mount LittleFS (`cfg.initFileSystem`), create the autosync task (optional), and prime diagnostics.
 - `void onEvent(std::function<void(DBEventType)>)` / `void onError(std::function<void(const DbStatus&)>)` – receive sync, CRUD, and validation events.
 - Collection management: `collection(name)`, `dropCollection(name)`, `dropAll()`, `getAllCollectionName()`.
 - Document helpers:
@@ -93,7 +93,7 @@ See the sketches under `examples/` for end-to-end flows:
 - References: store `{ "collection": "authors", "_id": "..." }` inside a document and call `DocView::populate(fieldName)` to expand the reference into an embedded object.
 - Sync + diagnostics: `syncNow()`, `getDiag()` (JSON summary), `getSnapshot()` / `restoreFromSnapshot()` for backups.
 
-`SyncConfig` knobs:
+`ESPJsonDBConfig` knobs:
 - `intervalMs`, `stackSize`, `priority`, `coreId` – background autosync cadence & FreeRTOS tuning.
 - `autosync`, `coldSync`, `cacheEnabled` – enable/disable timers and caches.
 - `fs`, `initFileSystem`, `formatOnFail`, `partitionLabel`, `maxOpenFiles` – file system integration; pass your own `fs::FS` if you mount LittleFS elsewhere.

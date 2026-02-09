@@ -21,7 +21,7 @@
 class ESPJsonDB {
   public:
 	~ESPJsonDB();
-	DbStatus init(const char *baseDir = "/db", const SyncConfig &cfg = {});
+	DbStatus init(const char *baseDir = "/db", const ESPJsonDBConfig &cfg = {});
 	DbStatus registerSchema(const std::string &name, const Schema &s);
 	DbStatus unRegisterSchema(const std::string &name);
 	DbStatus dropCollection(const std::string &name);
@@ -33,7 +33,7 @@ class ESPJsonDB {
 	std::vector<std::string> getAllCollectionName();
 
 	// Change sync configuration; restarts autosync task if needed
-	DbStatus changeConfig(const SyncConfig &cfg);
+	DbStatus changeConfig(const ESPJsonDBConfig &cfg);
 
 	// Register a generic DB event callback
 	void onEvent(const std::function<void(DBEventType)> &cb);
@@ -132,7 +132,7 @@ class ESPJsonDB {
 
   private:
 	std::string _baseDir;
-	SyncConfig _cfg;
+	ESPJsonDBConfig _cfg;
 	std::map<std::string, std::unique_ptr<Collection>> _cols;
 	std::map<std::string, Schema> _schemas;
 	std::vector<std::string> _colsToDelete;

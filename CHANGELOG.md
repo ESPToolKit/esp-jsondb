@@ -7,11 +7,16 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 ## [Unreleased]
 - No changes yet.
 
+## [1.0.5] - 2026-02-09
+### Changed
+- Renamed the public database configuration type to `ESPJsonDBConfig` for naming consistency across ESPToolKit libraries.
+- Updated all public API signatures, examples, tests, and documentation to use `ESPJsonDBConfig`.
+
 ## [1.0.4] - 2025-09-25
 ### Added
-- `SyncConfig::cacheEnabled` toggle and the supporting persistence path so the database can run without the RAM cache; includes a `CacheDisabled` example sketch.
-- `SyncConfig::coldSync` option to preload collections from the filesystem during `init()` and `changeConfig()` when warm cache is disabled.
-- Extended `SyncConfig` with LittleFS controls (`initFileSystem`, `formatOnFail`, `maxOpenFiles`, `partitionLabel`) and the ability to supply an external `fs::FS` handle; added the `ExternalFs` example to demonstrate SPIFFS-backed storage.
+- `ESPJsonDBConfig::cacheEnabled` toggle and the supporting persistence path so the database can run without the RAM cache; includes a `CacheDisabled` example sketch.
+- `ESPJsonDBConfig::coldSync` option to preload collections from the filesystem during `init()` and `changeConfig()` when warm cache is disabled.
+- Extended `ESPJsonDBConfig` with LittleFS controls (`initFileSystem`, `formatOnFail`, `maxOpenFiles`, `partitionLabel`) and the ability to supply an external `fs::FS` handle; added the `ExternalFs` example to demonstrate SPIFFS-backed storage.
 
 ### Changed
 - Reworked collection locking and commit flow to improve thread-safety and keep cache-less configurations consistent with on-disk state.
@@ -41,7 +46,8 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 - Event callbacks, diagnostics reporting, and automatic `createdAt` / `updatedAt` timestamps on documents.
 - Example sketches covering quick start, collections, bulk operations, schema validation, and references.
 
-[Unreleased]: https://github.com/ESPToolKit/esp-jsondb/compare/v1.0.4...HEAD
+[Unreleased]: https://github.com/ESPToolKit/esp-jsondb/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/ESPToolKit/esp-jsondb/releases/tag/v1.0.5
 [1.0.4]: https://github.com/ESPToolKit/esp-jsondb/releases/tag/v1.0.4
 [1.0.3]: https://github.com/ESPToolKit/esp-jsondb/releases/tag/v1.0.3
 [1.0.2]: https://github.com/ESPToolKit/esp-jsondb/releases/tag/v1.0.2

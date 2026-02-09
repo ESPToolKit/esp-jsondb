@@ -23,7 +23,7 @@ ESPJsonDB::~ESPJsonDB() {
 	stopSyncTaskUnlocked();
 }
 
-DbStatus ESPJsonDB::init(const char *baseDir, const SyncConfig &cfg) {
+DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 	_baseDir = baseDir ? baseDir : std::string("/db");
 	// Normalize baseDir: ensure leading '/', drop trailing '/'
 	if (_baseDir.empty()) {
@@ -462,7 +462,7 @@ JsonDocument ESPJsonDB::getDiag() {
 	std::map<std::string, uint32_t> live;
 	uint32_t lastRefreshMs = 0;
 	// Copy of configuration for reporting
-	SyncConfig cfgCopy{};
+	ESPJsonDBConfig cfgCopy{};
 	std::string baseDirCopy;
 	{
 		FrLock lk(_mu);
@@ -583,7 +583,7 @@ std::vector<std::string> ESPJsonDB::getAllCollectionName() {
 	return names;
 }
 
-DbStatus ESPJsonDB::changeConfig(const SyncConfig &cfg) {
+DbStatus ESPJsonDB::changeConfig(const ESPJsonDBConfig &cfg) {
 	bool doColdSync = cfg.coldSync;
 	bool shouldStart = false;
 	// Stop existing task if running and apply new config

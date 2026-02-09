@@ -20,7 +20,7 @@ enum class DbStatusCode : uint8_t {
 	Unknown
 };
 
-struct SyncConfig {
+struct ESPJsonDBConfig {
 	uint32_t intervalMs = 2000;
 	uint16_t stackSize = static_cast<uint16_t>(4096 * sizeof(StackType_t));
 	UBaseType_t priority = 2;

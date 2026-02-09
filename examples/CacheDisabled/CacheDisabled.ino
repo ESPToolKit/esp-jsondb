@@ -11,7 +11,7 @@ ESPJsonDB db;
 void setup() {
     Serial.begin(115200);
 
-    SyncConfig cfg;
+    ESPJsonDBConfig cfg;
     cfg.autosync = false;      // not needed because writes go straight to disk
     cfg.cacheEnabled = false;  // disable RAM cache
 

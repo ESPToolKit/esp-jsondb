@@ -2,7 +2,7 @@
 
 void DbTester::init() {
 	// cfg is opional
-	SyncConfig cfg;
+	ESPJsonDBConfig cfg;
 	cfg.intervalMs = 3000;
 	cfg.autosync = true;
 
