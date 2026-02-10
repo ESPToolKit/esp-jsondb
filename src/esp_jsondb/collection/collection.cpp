@@ -42,6 +42,11 @@ void Collection::emitEvent(DBEventType ev) const {
 	if (_db) _db->emitEvent(ev);
 }
 
+void Collection::noteDeletedInDiag(size_t count) const {
+	if (count == 0 || !_db) return;
+	_db->noteDocumentDeleted(_name, static_cast<uint32_t>(count));
+}
+
 DbStatus Collection::checkUniqueFieldsInCache(JsonObjectConst obj, const std::string &selfId) {
     // Scan schema for fields marked unique and ensure no other doc has same value
     for (const auto &f : _schema.fields) {

@@ -149,6 +149,7 @@ class Collection {
 
 	DbStatus recordStatus(const DbStatus &st) const;
 	void emitEvent(DBEventType ev) const;
+	void noteDeletedInDiag(size_t count) const;
 };
 
 template <typename Pred>
@@ -192,9 +193,7 @@ DbResult<size_t> Collection::removeMany(Pred &&p) {
         }
         res.value = removedCount;
     }
-    if (res.value > 0 && _db) {
-        _db->noteDocumentDeleted(_name, static_cast<uint32_t>(res.value));
-    }
+    noteDeletedInDiag(res.value);
     res.status = {DbStatusCode::Ok, ""};
     recordStatus(res.status);
     return res;
