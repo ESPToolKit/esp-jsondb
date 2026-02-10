@@ -130,6 +130,10 @@ class ESPJsonDB {
 	// Emit an error to registered listeners
 	void emitError(const DbStatus &st);
 
+	// Internal diagnostics counters used by Collection write paths.
+	void noteDocumentCreated(const std::string &collectionName, uint32_t count = 1);
+	void noteDocumentDeleted(const std::string &collectionName, uint32_t count = 1);
+
   private:
 	std::string _baseDir;
 	ESPJsonDBConfig _cfg;
@@ -150,7 +154,8 @@ class ESPJsonDB {
 		uint32_t lastRefreshMs = 0; // millis when refreshed from FS
 	};
 
-	DiagCache _diagCache; // refreshed on sync; read without touching FS
+	DiagCache _diagCache; // cached diagnostics; read without touching FS
+	bool _diagCachePrimed = false; // becomes true after first full diag refresh
 
 	// sync task
 	static void syncTaskThunk(void *arg);
@@ -169,7 +174,7 @@ class ESPJsonDB {
 	DbStatus ensureFsReady();
 	DbStatus removeCollectionDir(const std::string &name);
 
-	// Refresh diag cache from filesystem (expensive; called during sync)
+	// Refresh diag cache from filesystem (expensive; called lazily by getDiag)
 	void refreshDiagFromFs();
 	DbStatus preloadCollectionsFromFs();
 

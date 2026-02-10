@@ -39,8 +39,13 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 	auto st = ensureFsReady();
 	if (!st.ok()) return st;
 
-	// Initial diag refresh from FS (once). This avoids getDiag() touching FS later.
-	refreshDiagFromFs();
+	{
+		FrLock lk(_mu);
+		_diagCache.docsPerCollection.clear();
+		_diagCache.collections = 0;
+		_diagCache.lastRefreshMs = 0;
+		_diagCachePrimed = false;
+	}
 
 	if (_cfg.coldSync) {
 		auto preloadStatus = preloadCollectionsFromFs();
@@ -97,10 +102,13 @@ DbStatus ESPJsonDB::dropCollection(const std::string &name) {
 		return setLastError({DbStatusCode::Ok, ""});
 	}
 	// Update diag cache immediately to avoid reporting stale collections
-	auto dit = _diagCache.docsPerCollection.find(name);
-	if (dit != _diagCache.docsPerCollection.end()) {
-		_diagCache.docsPerCollection.erase(dit);
-		if (_diagCache.collections > 0) --_diagCache.collections;
+	if (_diagCachePrimed) {
+		auto dit = _diagCache.docsPerCollection.find(name);
+		if (dit != _diagCache.docsPerCollection.end()) {
+			_diagCache.docsPerCollection.erase(dit);
+			if (_diagCache.collections > 0) --_diagCache.collections;
+		}
+		_diagCache.lastRefreshMs = millis();
 	}
 	// schedule directory removal on next sync
 	_colsToDelete.push_back(name);
@@ -320,7 +328,6 @@ DbStatus ESPJsonDB::syncNow() {
 	}
 	// Only refresh diagnostics and emit Sync if there were actual changes
 	if (anyChanges) {
-		refreshDiagFromFs();
 		emitEvent(DBEventType::Sync);
 	}
 	if (!finalStatus.ok()) return finalStatus;
@@ -440,6 +447,33 @@ void ESPJsonDB::emitError(const DbStatus &st) {
 	}
 }
 
+void ESPJsonDB::noteDocumentCreated(const std::string &collectionName, uint32_t count) {
+	if (collectionName.empty() || count == 0) return;
+	FrLock lk(_mu);
+	if (!_diagCachePrimed) return;
+	uint32_t &docs = _diagCache.docsPerCollection[collectionName];
+	if (docs == 0) {
+		++_diagCache.collections;
+	}
+	docs += count;
+	_diagCache.lastRefreshMs = millis();
+}
+
+void ESPJsonDB::noteDocumentDeleted(const std::string &collectionName, uint32_t count) {
+	if (collectionName.empty() || count == 0) return;
+	FrLock lk(_mu);
+	if (!_diagCachePrimed) return;
+	auto it = _diagCache.docsPerCollection.find(collectionName);
+	if (it == _diagCache.docsPerCollection.end()) return;
+	if (it->second <= count) {
+		_diagCache.docsPerCollection.erase(it);
+		if (_diagCache.collections > 0) --_diagCache.collections;
+	} else {
+		it->second -= count;
+	}
+	_diagCache.lastRefreshMs = millis();
+}
+
 DbStatus ESPJsonDB::preloadCollectionsFromFs() {
 	auto names = getAllCollectionName();
 	for (const auto &name : names) {
@@ -453,6 +487,14 @@ DbStatus ESPJsonDB::preloadCollectionsFromFs() {
 }
 
 JsonDocument ESPJsonDB::getDiag() {
+	bool needPrime = false;
+	{
+		FrLock lk(_mu);
+		needPrime = !_diagCachePrimed;
+	}
+	if (needPrime) {
+		refreshDiagFromFs();
+	}
 	// Build diagnostics from cached FS snapshot, overlapped with live loaded collections
 	// No filesystem access here.
 	JsonDocument doc;
@@ -531,6 +573,8 @@ DbStatus ESPJsonDB::dropAll() {
 		_colsToDelete.clear();
 		_diagCache.docsPerCollection.clear();
 		_diagCache.collections = 0;
+		_diagCache.lastRefreshMs = millis();
+		_diagCachePrimed = true;
 	}
 
 	// Remove base directory tree and recreate base dir
@@ -540,9 +584,6 @@ DbStatus ESPJsonDB::dropAll() {
 	}
 	auto st = ensureFsReady();
 	if (!st.ok()) return st;
-
-	// Refresh diagnostics (should be empty)
-	refreshDiagFromFs();
 
 	// Restart autosync if it was enabled
 	if (shouldRestart) {
@@ -799,5 +840,6 @@ void ESPJsonDB::refreshDiagFromFs() {
 		_diagCache.docsPerCollection = std::move(perCol);
 		_diagCache.collections = colCount;
 		_diagCache.lastRefreshMs = millis();
+		_diagCachePrimed = true;
 	}
 }

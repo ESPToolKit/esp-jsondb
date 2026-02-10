@@ -180,7 +180,10 @@ DbResult<std::string> Collection::create(JsonObjectConst data) {
 			return res;
 		}
 	}
-	if (emit) emitEvent(DBEventType::DocumentCreated);
+	if (emit) {
+		if (_db) _db->noteDocumentCreated(_name);
+		emitEvent(DBEventType::DocumentCreated);
+	}
 	return res;
 }
 
@@ -395,10 +398,12 @@ DbStatus Collection::updateOne(std::function<bool(const DocView &)> pred,
 			st = {DbStatusCode::Ok, ""};
 		}
 	}
-	if (created)
+	if (created) {
+		if (_db) _db->noteDocumentCreated(_name);
 		emitEvent(DBEventType::DocumentCreated);
-	else if (updated)
+	} else if (updated) {
 		emitEvent(DBEventType::DocumentUpdated);
+	}
 	return recordStatus(st);
 }
 
@@ -488,10 +493,12 @@ DbStatus Collection::updateOne(const JsonDocument &filter,
             st = {DbStatusCode::Ok, ""};
         }
 	}
-	if (created)
+	if (created) {
+		if (_db) _db->noteDocumentCreated(_name);
 		emitEvent(DBEventType::DocumentCreated);
-	else if (updated)
+	} else if (updated) {
 		emitEvent(DBEventType::DocumentUpdated);
+	}
 	return recordStatus(st);
 }
 
@@ -549,7 +556,10 @@ DbStatus Collection::removeById(const std::string &id) {
         _dirty = true;
         removed = true;
     }
-	if (removed) emitEvent(DBEventType::DocumentDeleted);
+	if (removed) {
+		if (_db) _db->noteDocumentDeleted(_name);
+		emitEvent(DBEventType::DocumentDeleted);
+	}
 	return recordStatus(st);
 }
 

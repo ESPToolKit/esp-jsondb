@@ -82,7 +82,7 @@ See the sketches under `examples/` for end-to-end flows:
 - Unique constraints and validators run inside write operations. Long-running validators will increase latency for the calling task.
 
 ## API Reference
-- `DbStatus init(const char* baseDir = "/db", const ESPJsonDBConfig& cfg = {})` – mount LittleFS (`cfg.initFileSystem`), create the autosync task (optional), and prime diagnostics.
+- `DbStatus init(const char* baseDir = "/db", const ESPJsonDBConfig& cfg = {})` – mount LittleFS (`cfg.initFileSystem`) and create the autosync task (optional). Diagnostics are loaded lazily on first `getDiag()`.
 - `void onEvent(std::function<void(DBEventType)>)` / `void onError(std::function<void(const DbStatus&)>)` – receive sync, CRUD, and validation events.
 - Collection management: `collection(name)`, `dropCollection(name)`, `dropAll()`, `getAllCollectionName()`.
 - Document helpers:
@@ -92,6 +92,7 @@ See the sketches under `examples/` for end-to-end flows:
 - Schemas: `registerSchema(name, Schema)`, `unRegisterSchema(name)`; `Schema` exposes fields with type/default/unique flags plus optional custom `validate` callables.
 - References: store `{ "collection": "authors", "_id": "..." }` inside a document and call `DocView::populate(fieldName)` to expand the reference into an embedded object.
 - Sync + diagnostics: `syncNow()`, `getDiag()` (JSON summary), `getSnapshot()` / `restoreFromSnapshot()` for backups.
+  - `getDiag()` performs one lazy filesystem scan on first use, then keeps counts updated incrementally on create/delete/drop operations.
 
 `ESPJsonDBConfig` knobs:
 - `intervalMs`, `stackSize`, `priority`, `coreId` – background autosync cadence & FreeRTOS tuning.
