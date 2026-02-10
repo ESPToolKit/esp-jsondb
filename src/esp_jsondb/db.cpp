@@ -44,7 +44,7 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 		_diagCache.docsPerCollection.clear();
 		_diagCache.collections = 0;
 		_diagCache.lastRefreshMs = 0;
-		_diagCachePrimed = false;
+		_diagCachePrimed = true;
 	}
 
 	if (_cfg.coldSync) {
@@ -487,14 +487,6 @@ DbStatus ESPJsonDB::preloadCollectionsFromFs() {
 }
 
 JsonDocument ESPJsonDB::getDiag() {
-	bool needPrime = false;
-	{
-		FrLock lk(_mu);
-		needPrime = !_diagCachePrimed;
-	}
-	if (needPrime) {
-		refreshDiagFromFs();
-	}
 	// Build diagnostics from cached FS snapshot, overlapped with live loaded collections
 	// No filesystem access here.
 	JsonDocument doc;

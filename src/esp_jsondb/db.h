@@ -155,7 +155,7 @@ class ESPJsonDB {
 	};
 
 	DiagCache _diagCache; // cached diagnostics; read without touching FS
-	bool _diagCachePrimed = false; // becomes true after first full diag refresh
+	bool _diagCachePrimed = false; // true once runtime counters are initialized
 
 	// sync task
 	static void syncTaskThunk(void *arg);
@@ -174,7 +174,7 @@ class ESPJsonDB {
 	DbStatus ensureFsReady();
 	DbStatus removeCollectionDir(const std::string &name);
 
-	// Refresh diag cache from filesystem (expensive; called lazily by getDiag)
+	// Refresh diag cache from filesystem (expensive; used only for explicit full refresh paths)
 	void refreshDiagFromFs();
 	DbStatus preloadCollectionsFromFs();
 

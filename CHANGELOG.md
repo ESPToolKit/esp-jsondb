@@ -6,8 +6,9 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 
 ## [Unreleased]
 ### Changed
-- Made diagnostics initialization lazy: `init()` no longer performs an eager filesystem diagnostics scan; the first `getDiag()` call now primes diagnostics on demand.
+- Removed eager diagnostics scanning from `init()` to reduce startup latency.
 - Switched diagnostics maintenance to incremental updates for create/delete/drop flows so regular write and sync paths avoid repeated full filesystem rescans.
+- Made `getDiag()` fully non-filesystem to keep it safe for async/task contexts (for example web server callback tasks); diagnostics now remain in-memory and lightweight.
 
 ## [1.0.5] - 2026-02-09
 ### Changed
