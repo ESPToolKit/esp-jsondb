@@ -38,6 +38,10 @@ std::string ESPJsonDB::fileRootDir() const {
 }
 
 ESPJsonDB::~ESPJsonDB() {
+	{
+		FrLock lk(_mu);
+		stopFileUploadTaskUnlocked(true);
+	}
 	stopSyncTaskUnlocked();
 }
 
@@ -59,6 +63,10 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 
 	{
 		FrLock lk(_mu);
+		stopFileUploadTaskUnlocked(true);
+		_uploadQueue.clear();
+		_uploadJobs.clear();
+		_nextUploadId = 1;
 		_diagCache.docsPerCollection.clear();
 		_diagCache.collections = 0;
 		_diagCache.lastRefreshMs = 0;
@@ -589,6 +597,7 @@ DbStatus ESPJsonDB::dropAll() {
 		FrLock lk(_mu);
 		// Stop autosync task to avoid races while removing files
 		shouldRestart = _cfg.autosync;
+		stopFileUploadTaskUnlocked(true);
 		stopSyncTaskUnlocked();
 
 		// Clear in-memory state
@@ -597,6 +606,8 @@ DbStatus ESPJsonDB::dropAll() {
 		}
 		_cols.clear();
 		_colsToDelete.clear();
+		_uploadQueue.clear();
+		_uploadJobs.clear();
 		_diagCache.docsPerCollection.clear();
 		_diagCache.collections = 0;
 		_diagCache.lastRefreshMs = millis();
@@ -658,6 +669,7 @@ DbStatus ESPJsonDB::changeConfig(const ESPJsonDBConfig &cfg) {
 	// Stop existing task if running and apply new config
 	{
 		FrLock lk(_mu);
+		stopFileUploadTaskUnlocked(true);
 		stopSyncTaskUnlocked();
 		_cfg = cfg;
 		for (auto &kv : _cols) {

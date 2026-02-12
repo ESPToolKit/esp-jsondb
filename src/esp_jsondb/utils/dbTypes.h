@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <functional>
 #include <string>
 
 enum class DbStatusCode : uint8_t {
@@ -94,6 +95,23 @@ struct DbStatus {
     DbStatus(DbStatusCode c, const char *msg) : code(c), message(msg) {}
     bool ok() const { return code == DbStatusCode::Ok; }
 };
+
+enum class DbFileUploadState : uint8_t {
+	Queued = 0,
+	Running,
+	Completed,
+	Failed,
+	Cancelled
+};
+
+using DbFileUploadPullCb = std::function<DbStatus(size_t requested,
+												  uint8_t *buffer,
+												  size_t &produced,
+												  bool &eof)>;
+
+using DbFileUploadDoneCb = std::function<void(uint32_t uploadId,
+											  const DbStatus &status,
+											  size_t bytesWritten)>;
 
 template <typename T>
 struct DbResult {

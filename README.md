@@ -76,6 +76,7 @@ See the sketches under `examples/` for end-to-end flows:
 - `UniqueFields` – per-collection uniqueness guarantees.
 - `References` – store one-to-many relations and populate them lazily.
 - `FileStreaming` – store and stream `txt` / `json` / `csv` / `bin` / custom extension payloads.
+- `AsyncFileUpload` – non-blocking, callback-driven chunk upload on a background task.
 
 File storage example:
 
@@ -95,6 +96,7 @@ firmwareChunk.close();
 - Sync callbacks run on the background task; keep them short to avoid blocking periodic flushes.
 - Unique constraints and validators run inside write operations. Long-running validators will increase latency for the calling task.
 - `writeFileStream()` and `readFileStream()` hold the filesystem lock while processing the stream; use reasonable chunk sizes and avoid blocking stream sources/sinks.
+- `writeFileStreamAsync()` runs producer callbacks on a background task; callbacks must be short and thread-safe.
 - `/_files` is an internal reserved directory used for file storage and cannot be used as a collection name.
 - `getSnapshot()` and `restoreFromSnapshot()` currently cover document collections only; file storage under `/_files` is not included.
 
@@ -112,11 +114,14 @@ firmwareChunk.close();
   - `getDiag()` does not touch the filesystem; it reports cached counters overlaid with currently loaded collection sizes.
 - File storage:
   - `writeFileStream(path, in, bytesToWrite, opts)` / `readFileStream(path, out, chunkSize)` for chunked stream transfer.
+  - `writeFileStreamAsync(path, pullCb, opts, doneCb)` for non-blocking producer-driven uploads.
+  - `cancelFileUpload(uploadId)`, `getFileUploadState(uploadId)` for async job control.
   - `writeFile(path, data, size)` / `readFile(path)` for direct byte buffers.
   - `writeTextFile(path, text)` / `readTextFile(path)` for UTF-8 or plain text payloads.
   - `fileExists(path)`, `fileSize(path)`, `removeFile(path)` for file lifecycle utilities.
   - File paths are relative to `/<baseDir>/_files` and path traversal segments are rejected.
   - `ESPJsonDBFileOptions`: `overwrite` and `chunkSize` controls for stream writes.
+  - `DbFileUploadPullCb`: callback receives `(requested, buffer, produced, eof)` and fills bytes into `buffer`.
 
 `ESPJsonDBConfig` knobs:
 - `intervalMs`, `stackSize`, `priority`, `coreId` – background autosync cadence & FreeRTOS tuning.

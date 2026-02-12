@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format follows Keep a Changelog and the project adheres to Semantic Versioning.
 
 ## [Unreleased]
+### Added
+- Background async file upload API:
+  - `writeFileStreamAsync(path, pullCb, opts, doneCb)`
+  - `cancelFileUpload(uploadId)`
+  - `getFileUploadState(uploadId)`
+- New `examples/AsyncFileUpload` sketch.
+
+### Changed
+- `dropAll()`, `changeConfig()`, and `init()` now cancel pending/running async uploads before reconfiguring filesystem state.
 
 ## [1.1.0] - 2026-02-12
 ### Added

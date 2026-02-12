@@ -1,4 +1,5 @@
 #include "dbTest.h"
+#include <cstring>
 
 void DbTester::fileStorageTest() {
 	const std::string textPath = "docs/sample.txt";
@@ -83,4 +84,86 @@ void DbTester::fileStorageTest() {
 	(void)db.removeFile("bin/copied.bin");
 
 	ESP_LOGI(DB_TESTER_TAG, "File storage test passed");
+}
+
+void DbTester::asyncFileUploadTest() {
+	struct UploadCtx {
+		const uint8_t *data = nullptr;
+		size_t size = 0;
+		size_t offset = 0;
+	} ctx;
+
+	std::vector<uint8_t> payload;
+	payload.reserve(513);
+	for (size_t i = 0; i < 513; ++i) {
+		payload.push_back(static_cast<uint8_t>(i & 0xFF));
+	}
+	ctx.data = payload.data();
+	ctx.size = payload.size();
+	ctx.offset = 0;
+
+	volatile bool done = false;
+	volatile bool doneOk = false;
+	volatile size_t doneBytes = 0;
+
+	DbFileUploadPullCb pullCb = [&ctx](size_t requested, uint8_t *buffer, size_t &produced, bool &eof) -> DbStatus {
+		if (!buffer) return {DbStatusCode::InvalidArgument, "buffer is null"};
+		if (ctx.offset >= ctx.size) {
+			produced = 0;
+			eof = true;
+			return {DbStatusCode::Ok, ""};
+		}
+		size_t remaining = ctx.size - ctx.offset;
+		size_t take = remaining < requested ? remaining : requested;
+		memcpy(buffer, ctx.data + ctx.offset, take);
+		ctx.offset += take;
+		produced = take;
+		eof = (ctx.offset >= ctx.size);
+		return {DbStatusCode::Ok, ""};
+	};
+
+	DbFileUploadDoneCb doneCb = [&done, &doneOk, &doneBytes](uint32_t, const DbStatus &st, size_t bytesWritten) {
+		doneOk = st.ok();
+		doneBytes = bytesWritten;
+		done = true;
+	};
+
+	ESPJsonDBFileOptions opts;
+	opts.overwrite = true;
+	opts.chunkSize = 96;
+	auto asyncRes = db.writeFileStreamAsync("async/payload.bin", pullCb, opts, doneCb);
+	if (!asyncRes.status.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "writeFileStreamAsync failed: %s", asyncRes.status.message);
+		return;
+	}
+
+	uint32_t uploadId = asyncRes.value;
+	const uint32_t started = millis();
+	while (!done && (millis() - started) < 5000) {
+		delay(10);
+	}
+	if (!done) {
+		ESP_LOGE(DB_TESTER_TAG, "Async upload timed out");
+		(void)db.cancelFileUpload(uploadId);
+		return;
+	}
+	if (!doneOk || doneBytes != payload.size()) {
+		ESP_LOGE(DB_TESTER_TAG, "Async upload completion status mismatch");
+		return;
+	}
+
+	auto stateRes = db.getFileUploadState(uploadId);
+	if (!stateRes.status.ok() || stateRes.value != DbFileUploadState::Completed) {
+		ESP_LOGE(DB_TESTER_TAG, "Async upload state mismatch");
+		return;
+	}
+
+	auto readBack = db.readFile("async/payload.bin");
+	if (!readBack.status.ok() || readBack.value != payload) {
+		ESP_LOGE(DB_TESTER_TAG, "Async upload payload mismatch");
+		return;
+	}
+
+	(void)db.removeFile("async/payload.bin");
+	ESP_LOGI(DB_TESTER_TAG, "Async file upload test passed");
 }

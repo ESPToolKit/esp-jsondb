@@ -140,6 +140,15 @@ class ESPJsonDB {
 	DbResult<bool> fileExists(const std::string &relativePath);
 	DbResult<size_t> fileSize(const std::string &relativePath);
 
+	// Non-blocking chunked file upload worker API.
+	// The pull callback runs on a background task and must fill up to `requested` bytes.
+	DbResult<uint32_t> writeFileStreamAsync(const std::string &relativePath,
+											const DbFileUploadPullCb &pullCb,
+											const ESPJsonDBFileOptions &opts = {},
+											const DbFileUploadDoneCb &doneCb = {});
+	DbStatus cancelFileUpload(uint32_t uploadId);
+	DbResult<DbFileUploadState> getFileUploadState(uint32_t uploadId);
+
 	// Emit an event to registered listeners
 	void emitEvent(DBEventType ev);
 
@@ -194,12 +203,36 @@ class ESPJsonDB {
 	std::string fileRootDir() const;
 	DbStatus normalizeFilePath(const std::string &rawRelativePath, std::string &normalized) const;
 
+	// async file upload task
+	struct FileUploadJob {
+		uint32_t id = 0;
+		std::string relativePath;
+		std::string normalizedPath;
+		ESPJsonDBFileOptions opts{};
+		DbFileUploadPullCb pullCb{};
+		DbFileUploadDoneCb doneCb{};
+		DbFileUploadState state = DbFileUploadState::Queued;
+		DbStatus finalStatus{DbStatusCode::Ok, ""};
+		size_t bytesWritten = 0;
+		bool cancelRequested = false;
+	};
+	static void fileUploadTaskThunk(void *arg);
+	void fileUploadTaskLoop();
+	void startFileUploadTaskUnlocked();
+	void stopFileUploadTaskUnlocked(bool cancelPending);
+	DbStatus runFileUploadJob(const std::shared_ptr<FileUploadJob> &job, size_t &bytesWritten);
+	bool isUploadTerminal(DbFileUploadState state) const;
+
 	// Refresh diag cache from filesystem (expensive; used only for explicit full refresh paths)
 	void refreshDiagFromFs();
 	DbStatus preloadCollectionsFromFs();
 
 	// Task handle for autosync
 	TaskHandle_t _syncTask = nullptr;
+	TaskHandle_t _fileUploadTask = nullptr;
+	uint32_t _nextUploadId = 1;
+	std::vector<uint32_t> _uploadQueue;
+	std::map<uint32_t, std::shared_ptr<FileUploadJob>> _uploadJobs;
 };
 
 template <typename Pred>
