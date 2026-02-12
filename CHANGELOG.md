@@ -5,6 +5,8 @@ All notable changes to this project are documented in this file.
 The format follows Keep a Changelog and the project adheres to Semantic Versioning.
 
 ## [Unreleased]
+
+## [1.1.0] - 2026-02-12
 ### Added
 - Generic file storage APIs under the internal `/<baseDir>/_files` tree:
   - `writeFileStream`, `readFileStream` for chunked streaming.
@@ -59,7 +61,8 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 - Event callbacks, diagnostics reporting, and automatic `createdAt` / `updatedAt` timestamps on documents.
 - Example sketches covering quick start, collections, bulk operations, schema validation, and references.
 
-[Unreleased]: https://github.com/ESPToolKit/esp-jsondb/compare/v1.0.5...HEAD
+[Unreleased]: https://github.com/ESPToolKit/esp-jsondb/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/ESPToolKit/esp-jsondb/releases/tag/v1.1.0
 [1.0.5]: https://github.com/ESPToolKit/esp-jsondb/releases/tag/v1.0.5
 [1.0.4]: https://github.com/ESPToolKit/esp-jsondb/releases/tag/v1.0.4
 [1.0.3]: https://github.com/ESPToolKit/esp-jsondb/releases/tag/v1.0.3
