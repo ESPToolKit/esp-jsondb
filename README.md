@@ -15,6 +15,7 @@ A lightweight document database for ESP32 devices. ESPJsonDB borrows the ergonom
 - Schema registry with required fields, defaults, type validation, and collection-level unique constraints.
 - Event + error callbacks so firmware can observe sync cycles or take action when validation fails.
 - Snapshot/restore helpers for backups plus diagnostics that report per-collection counts and config details.
+- Generic file storage helpers under `/<baseDir>/_files` with chunked stream read/write for any file type (text, binary, etc.).
 
 ## Examples
 Quick start:
@@ -74,12 +75,28 @@ See the sketches under `examples/` for end-to-end flows:
 - `SchemaValidation` – enforce required fields and custom validators.
 - `UniqueFields` – per-collection uniqueness guarantees.
 - `References` – store one-to-many relations and populate them lazily.
+- `FileStreaming` – store and stream `txt` / `json` / `csv` / `bin` / custom extension payloads.
+
+File storage example:
+
+```cpp
+ESPJsonDBFileOptions fileOpts;
+fileOpts.chunkSize = 256;
+db.writeTextFile("notes/readme.txt", "hello from esp-jsondb");
+
+File firmwareChunk = LittleFS.open("/fw/chunk.bin", FILE_READ);
+db.writeFileStream("firmware/chunk.bin", firmwareChunk, firmwareChunk.size(), fileOpts);
+firmwareChunk.close();
+```
 
 ## Gotchas
 - Each collection lives in RAM when the cache is enabled; disable the cache or add PSRAM when handling large documents.
 - All payloads are JSON; converting to structs is optional but deserialisation still costs memory—size your `JsonDocument` objects carefully.
 - Sync callbacks run on the background task; keep them short to avoid blocking periodic flushes.
 - Unique constraints and validators run inside write operations. Long-running validators will increase latency for the calling task.
+- `writeFileStream()` and `readFileStream()` hold the filesystem lock while processing the stream; use reasonable chunk sizes and avoid blocking stream sources/sinks.
+- `/_files` is an internal reserved directory used for file storage and cannot be used as a collection name.
+- `getSnapshot()` and `restoreFromSnapshot()` currently cover document collections only; file storage under `/_files` is not included.
 
 ## API Reference
 - `DbStatus init(const char* baseDir = "/db", const ESPJsonDBConfig& cfg = {})` – mount LittleFS (`cfg.initFileSystem`) and create the autosync task (optional). Diagnostics are lightweight and served from in-memory counters.
@@ -93,6 +110,13 @@ See the sketches under `examples/` for end-to-end flows:
 - References: store `{ "collection": "authors", "_id": "..." }` inside a document and call `DocView::populate(fieldName)` to expand the reference into an embedded object.
 - Sync + diagnostics: `syncNow()`, `getDiag()` (JSON summary), `getSnapshot()` / `restoreFromSnapshot()` for backups.
   - `getDiag()` does not touch the filesystem; it reports cached counters overlaid with currently loaded collection sizes.
+- File storage:
+  - `writeFileStream(path, in, bytesToWrite, opts)` / `readFileStream(path, out, chunkSize)` for chunked stream transfer.
+  - `writeFile(path, data, size)` / `readFile(path)` for direct byte buffers.
+  - `writeTextFile(path, text)` / `readTextFile(path)` for UTF-8 or plain text payloads.
+  - `fileExists(path)`, `fileSize(path)`, `removeFile(path)` for file lifecycle utilities.
+  - File paths are relative to `/<baseDir>/_files` and path traversal segments are rejected.
+  - `ESPJsonDBFileOptions`: `overwrite` and `chunkSize` controls for stream writes.
 
 `ESPJsonDBConfig` knobs:
 - `intervalMs`, `stackSize`, `priority`, `coreId` – background autosync cadence & FreeRTOS tuning.

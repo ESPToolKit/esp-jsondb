@@ -32,6 +32,7 @@ void DbTester::run() {
 	multiDocCreate(10);
 	multiDocRemove();
 	refPopulateTest();
+	fileStorageTest();
 	printDBDiag();
 	// Collection tests
 	simpleCollectionCreate();

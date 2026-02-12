@@ -5,10 +5,20 @@ All notable changes to this project are documented in this file.
 The format follows Keep a Changelog and the project adheres to Semantic Versioning.
 
 ## [Unreleased]
+### Added
+- Generic file storage APIs under the internal `/<baseDir>/_files` tree:
+  - `writeFileStream`, `readFileStream` for chunked streaming.
+  - `writeFile`, `readFile` for byte buffers.
+  - `writeTextFile`, `readTextFile` for text payloads.
+  - `fileExists`, `fileSize`, `removeFile` utility helpers.
+- New `examples/FileStreaming` sketch covering stream in/out and multiple file types (`txt`, `json`, `csv`, `bin`, `dat`).
+
 ### Changed
 - Removed eager diagnostics scanning from `init()` to reduce startup latency.
 - Switched diagnostics maintenance to incremental updates for create/delete/drop flows so regular write and sync paths avoid repeated full filesystem rescans.
 - Made `getDiag()` fully non-filesystem to keep it safe for async/task contexts (for example web server callback tasks); diagnostics now remain in-memory and lightweight.
+- Reserved `/_files` as an internal folder and excluded it from collection discovery/snapshot flows.
+- `getSnapshot()` / `restoreFromSnapshot()` continue to operate on JSON document collections only (they do not include `/_files` payloads).
 
 ## [1.0.5] - 2026-02-09
 ### Changed

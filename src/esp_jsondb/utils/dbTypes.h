@@ -6,6 +6,7 @@
 #include <freertos/FreeRTOS.h>
 
 #include <cstdint>
+#include <cstddef>
 #include <string>
 
 enum class DbStatusCode : uint8_t {
@@ -33,6 +34,11 @@ struct ESPJsonDBConfig {
 	bool formatOnFail = true;
 	uint8_t maxOpenFiles = 10;
 	const char *partitionLabel = "spiffs";
+};
+
+struct ESPJsonDBFileOptions {
+	bool overwrite = true;
+	size_t chunkSize = 512;
 };
 
 enum class DBEventType : uint8_t {

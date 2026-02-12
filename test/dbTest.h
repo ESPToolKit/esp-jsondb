@@ -21,6 +21,7 @@ class DbTester {
         void multiDocCreate(int docNum);
         void multiDocRemove();
         void refPopulateTest();
+        void fileStorageTest();
         // Collection tests
         void simpleCollectionCreate();
         void simpleCollectionRemove();

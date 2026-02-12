@@ -16,7 +16,25 @@ DbStatus ESPJsonDB::ensureFsReady() {
 	if (!fsEnsureDir(*_fs, _baseDir)) {
 		return setLastError({DbStatusCode::IoError, "mkdir baseDir failed"});
 	}
+	if (!fsEnsureDir(*_fs, fileRootDir())) {
+		return setLastError({DbStatusCode::IoError, "mkdir file root failed"});
+	}
 	return setLastError({DbStatusCode::Ok, ""});
+}
+
+DbStatus ESPJsonDB::ensureReady() const {
+	if (!_fs || _baseDir.empty()) {
+		return {DbStatusCode::InvalidArgument, "database not initialized"};
+	}
+	return {DbStatusCode::Ok, ""};
+}
+
+bool ESPJsonDB::isReservedName(const std::string &name) const {
+	return name == "_files";
+}
+
+std::string ESPJsonDB::fileRootDir() const {
+	return joinPath(_baseDir, "_files");
 }
 
 ESPJsonDB::~ESPJsonDB() {
@@ -62,12 +80,18 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 }
 
 DbStatus ESPJsonDB::registerSchema(const std::string &name, const Schema &s) {
+	if (isReservedName(name)) {
+		return setLastError({DbStatusCode::InvalidArgument, "reserved collection name"});
+	}
 	FrLock lk(_mu);
 	_schemas[name] = s;
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
 DbStatus ESPJsonDB::unRegisterSchema(const std::string &name) {
+	if (isReservedName(name)) {
+		return setLastError({DbStatusCode::InvalidArgument, "reserved collection name"});
+	}
 	FrLock lk(_mu);
 	_schemas.erase(name);
 	return setLastError({DbStatusCode::Ok, ""});
@@ -90,6 +114,9 @@ void ESPJsonDB::onSync(const std::function<void()> &cb) {
 }
 
 DbStatus ESPJsonDB::dropCollection(const std::string &name) {
+	if (isReservedName(name)) {
+		return setLastError({DbStatusCode::InvalidArgument, "reserved collection name"});
+	}
 	FrLock lk(_mu);
 	auto it = _cols.find(name);
 	if (it != _cols.end()) {
@@ -122,6 +149,10 @@ DbStatus ESPJsonDB::dropCollection(const std::string &name) {
 
 DbResult<Collection *> ESPJsonDB::collection(const std::string &name) {
 	DbResult<Collection *> res{};
+	if (isReservedName(name)) {
+		res.status = setLastError({DbStatusCode::InvalidArgument, "reserved collection name"});
+		return res;
+	}
 	{
 		FrLock lk(_mu);
 		auto it = _cols.find(name);
@@ -503,6 +534,7 @@ JsonDocument ESPJsonDB::getDiag() {
 		cached = _diagCache.docsPerCollection; // copy
 		lastRefreshMs = _diagCache.lastRefreshMs;
 		for (auto &kv : _cols) {
+			if (isReservedName(kv.first)) continue;
 			live[kv.first] = kv.second ? static_cast<uint32_t>(kv.second->size()) : 0u;
 		}
 		cfgCopy = _cfg;
@@ -518,6 +550,7 @@ JsonDocument ESPJsonDB::getDiag() {
 		seen[kv.first] = true;
 	}
 	for (auto &kv : cached) {
+		if (isReservedName(kv.first)) continue;
 		if (seen.find(kv.first) != seen.end()) continue;
 		per[kv.first.c_str()] = kv.second;
 	}
@@ -525,6 +558,7 @@ JsonDocument ESPJsonDB::getDiag() {
 	// Collections = number of unique keys
 	uint32_t collections = static_cast<uint32_t>(seen.size());
 	for (auto &kv : cached) {
+		if (isReservedName(kv.first)) continue;
 		if (seen.find(kv.first) == seen.end()) ++collections;
 	}
 	doc["collections"] = collections;
@@ -595,6 +629,7 @@ std::vector<std::string> ESPJsonDB::getAllCollectionName() {
 	{
 		FrLock lk(_mu);
 		for (auto &kv : _cols) {
+			if (isReservedName(kv.first)) continue;
 			seen[kv.first] = true;
 		}
 	}
@@ -607,6 +642,7 @@ std::vector<std::string> ESPJsonDB::getAllCollectionName() {
 			const std::string &full = e.first;
 			auto p = full.find_last_of('/');
 			std::string name = (p == std::string::npos) ? full : full.substr(p + 1);
+			if (isReservedName(name)) continue;
 			seen[name] = true;
 		}
 	}
@@ -660,6 +696,7 @@ JsonDocument ESPJsonDB::getSnapshot() {
 		const std::string &full = cd.first;
 		auto p = full.find_last_of('/');
 		std::string colName = (p == std::string::npos) ? full : full.substr(p + 1);
+		if (isReservedName(colName)) continue;
 
 		// Iterate files in collection dir
 		std::vector<std::pair<std::string, bool>> files;
@@ -716,6 +753,7 @@ DbStatus ESPJsonDB::restoreFromSnapshot(const JsonDocument &snapshot) {
 	for (auto kv : cols) {
 		const char *colName = kv.key().c_str();
 		if (!colName || !*colName) continue;
+		if (isReservedName(colName)) continue;
 		JsonArrayConst arr = kv.value().as<JsonArrayConst>();
 		if (arr.isNull()) continue;
 
@@ -794,6 +832,10 @@ void ESPJsonDB::refreshDiagFromFs() {
 					std::string cname = colName.c_str();
 					auto slash = cname.find_last_of('/');
 					if (slash != std::string::npos) cname = cname.substr(slash + 1);
+					if (isReservedName(cname)) {
+						f.close();
+						continue;
+					}
 					f.close();
 
 					// Count .mp files in collection dir

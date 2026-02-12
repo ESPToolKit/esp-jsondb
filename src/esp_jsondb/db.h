@@ -124,6 +124,22 @@ class ESPJsonDB {
 	JsonDocument getSnapshot();
 	DbStatus restoreFromSnapshot(const JsonDocument &snapshot);
 
+	// Generic file-bytes helpers under <baseDir>/_files.
+	DbStatus writeFileStream(const std::string &relativePath,
+							 Stream &in,
+							 size_t bytesToWrite,
+							 const ESPJsonDBFileOptions &opts = {});
+	DbStatus writeFile(const std::string &relativePath, const uint8_t *data, size_t size, bool overwrite = true);
+	DbStatus writeTextFile(const std::string &relativePath, const std::string &text, bool overwrite = true);
+
+	DbResult<size_t> readFileStream(const std::string &relativePath, Stream &out, size_t chunkSize = 512);
+	DbResult<std::vector<uint8_t>> readFile(const std::string &relativePath);
+	DbResult<std::string> readTextFile(const std::string &relativePath);
+
+	DbStatus removeFile(const std::string &relativePath);
+	DbResult<bool> fileExists(const std::string &relativePath);
+	DbResult<size_t> fileSize(const std::string &relativePath);
+
 	// Emit an event to registered listeners
 	void emitEvent(DBEventType ev);
 
@@ -172,7 +188,11 @@ class ESPJsonDB {
 
 	// fs helpers
 	DbStatus ensureFsReady();
+	DbStatus ensureReady() const;
 	DbStatus removeCollectionDir(const std::string &name);
+	bool isReservedName(const std::string &name) const;
+	std::string fileRootDir() const;
+	DbStatus normalizeFilePath(const std::string &rawRelativePath, std::string &normalized) const;
 
 	// Refresh diag cache from filesystem (expensive; used only for explicit full refresh paths)
 	void refreshDiagFromFs();
