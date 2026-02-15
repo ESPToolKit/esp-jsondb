@@ -14,6 +14,8 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 - Synchronous file streaming convenience APIs:
   - `writeFileStream(path, pullCb, opts)` for callback-driven producers.
   - `writeFileFromPath(path, sourceFsPath, opts)` to avoid manual source `File` management.
+- New `examples/LargeFileStreaming` sketch showing chunked large-binary streaming with streaming hash verification.
+- New `examples/AsyncLargeFileUpload` sketch showing background large-binary upload with progress polling and hash verification.
 
 ### Changed
 - `dropAll()`, `changeConfig()`, and `init()` now cancel pending/running async uploads before reconfiguring filesystem state.

@@ -76,7 +76,9 @@ See the sketches under `examples/` for end-to-end flows:
 - `UniqueFields` – per-collection uniqueness guarantees.
 - `References` – store one-to-many relations and populate them lazily.
 - `FileStreaming` – store and stream `txt` / `json` / `csv` / `bin` / custom extension payloads.
+- `LargeFileStreaming` – chunked upload + chunked verification for a large binary payload without full-buffer RAM copies.
 - `AsyncFileUpload` – non-blocking, callback-driven chunk upload on a background task.
+- `AsyncLargeFileUpload` – background chunk upload for a large binary payload with progress polling and streaming hash verification.
 
 File storage example:
 
