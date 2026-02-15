@@ -79,19 +79,12 @@ void setup() {
         return;
     }
 
-    File source = LittleFS.open(seedPath, FILE_READ);
-    if (!source) {
-        Serial.println("Failed to open source stream file");
-        return;
-    }
-
     ESPJsonDBFileOptions opts;
     opts.overwrite = true;
     opts.chunkSize = 128;
-    st = db.writeFileStream("streams/raw_capture.raw", source, source.size(), opts);
-    source.close();
+    st = db.writeFileFromPath("streams/raw_capture.raw", seedPath, opts);
     if (!st.ok()) {
-        Serial.printf("writeFileStream failed: %s\n", st.message);
+        Serial.printf("writeFileFromPath failed: %s\n", st.message);
         return;
     }
 

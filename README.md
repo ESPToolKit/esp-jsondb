@@ -85,9 +85,18 @@ ESPJsonDBFileOptions fileOpts;
 fileOpts.chunkSize = 256;
 db.writeTextFile("notes/readme.txt", "hello from esp-jsondb");
 
-File firmwareChunk = LittleFS.open("/fw/chunk.bin", FILE_READ);
-db.writeFileStream("firmware/chunk.bin", firmwareChunk, firmwareChunk.size(), fileOpts);
-firmwareChunk.close();
+db.writeFileFromPath("firmware/chunk.bin", "/fw/chunk.bin", fileOpts);
+
+db.writeFileStream(
+    "firmware/chunk_cb.bin",
+    [](size_t requested, uint8_t* buffer, size_t& produced, bool& eof) -> DbStatus {
+        // fill `buffer` with up to `requested` bytes, set produced/eof
+        produced = 0;
+        eof = true;
+        return {DbStatusCode::Ok, ""};
+    },
+    fileOpts
+);
 ```
 
 ## Gotchas
@@ -114,6 +123,8 @@ firmwareChunk.close();
   - `getDiag()` does not touch the filesystem; it reports cached counters overlaid with currently loaded collection sizes.
 - File storage:
   - `writeFileStream(path, in, bytesToWrite, opts)` / `readFileStream(path, out, chunkSize)` for chunked stream transfer.
+  - `writeFileStream(path, pullCb, opts)` for synchronous callback-driven chunk production.
+  - `writeFileFromPath(path, sourceFsPath, opts)` to copy a source file path into DB-managed file storage.
   - `writeFileStreamAsync(path, pullCb, opts, doneCb)` for non-blocking producer-driven uploads.
   - `cancelFileUpload(uploadId)`, `getFileUploadState(uploadId)` for async job control.
   - `writeFile(path, data, size)` / `readFile(path)` for direct byte buffers.

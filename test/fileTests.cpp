@@ -63,6 +63,73 @@ void DbTester::fileStorageTest() {
 		return;
 	}
 
+	auto copiedFromPath = db.writeFileFromPath("bin/copied_from_path.bin", "/test_db/_files/bin/source.bin", streamOpts);
+	if (!copiedFromPath.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "writeFileFromPath failed: %s", copiedFromPath.message);
+		return;
+	}
+
+	auto copiedFromPathRead = db.readFile("bin/copied_from_path.bin");
+	if (!copiedFromPathRead.status.ok() || copiedFromPathRead.value != binaryPayload) {
+		ESP_LOGE(DB_TESTER_TAG, "writeFileFromPath readback mismatch");
+		return;
+	}
+
+	struct SyncPullCtx {
+		const uint8_t *data = nullptr;
+		size_t size = 0;
+		size_t offset = 0;
+	} syncCtx;
+	syncCtx.data = binaryPayload.data();
+	syncCtx.size = binaryPayload.size();
+
+	auto pullCb = [&syncCtx](size_t requested, uint8_t *buffer, size_t &produced, bool &eof) -> DbStatus {
+		if (!buffer) return {DbStatusCode::InvalidArgument, "buffer is null"};
+		if (syncCtx.offset >= syncCtx.size) {
+			produced = 0;
+			eof = true;
+			return {DbStatusCode::Ok, ""};
+		}
+		size_t remaining = syncCtx.size - syncCtx.offset;
+		size_t take = remaining < requested ? remaining : requested;
+		memcpy(buffer, syncCtx.data + syncCtx.offset, take);
+		syncCtx.offset += take;
+		produced = take;
+		eof = (syncCtx.offset >= syncCtx.size);
+		return {DbStatusCode::Ok, ""};
+	};
+
+	auto syncCbWrite = db.writeFileStream("bin/copied_from_callback.bin", pullCb, streamOpts);
+	if (!syncCbWrite.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "sync callback writeFileStream failed: %s", syncCbWrite.message);
+		return;
+	}
+
+	auto copiedFromCallback = db.readFile("bin/copied_from_callback.bin");
+	if (!copiedFromCallback.status.ok() || copiedFromCallback.value != binaryPayload) {
+		ESP_LOGE(DB_TESTER_TAG, "sync callback stream readback mismatch");
+		return;
+	}
+
+	auto sourceNotFound = db.writeFileFromPath("bin/not_created.bin", "/test_db/_files/bin/missing.bin", streamOpts);
+	if (sourceNotFound.ok() || sourceNotFound.code != DbStatusCode::NotFound) {
+		ESP_LOGE(DB_TESTER_TAG, "writeFileFromPath missing-source check failed");
+		return;
+	}
+
+	auto invalidProducer = db.writeFileStream(
+		"bin/invalid_callback.bin",
+		[](size_t requested, uint8_t *, size_t &produced, bool &eof) -> DbStatus {
+			produced = requested + 1;
+			eof = false;
+			return {DbStatusCode::Ok, ""};
+		},
+		streamOpts);
+	if (invalidProducer.ok() || invalidProducer.code != DbStatusCode::InvalidArgument) {
+		ESP_LOGE(DB_TESTER_TAG, "writeFileStream invalid producer check failed");
+		return;
+	}
+
 	File sink = LittleFS.open("/test_db/stream_sink.txt", FILE_WRITE);
 	if (!sink) {
 		ESP_LOGE(DB_TESTER_TAG, "Failed to open sink file for readFileStream");
@@ -82,6 +149,9 @@ void DbTester::fileStorageTest() {
 	}
 	(void)db.removeFile("bin/source.bin");
 	(void)db.removeFile("bin/copied.bin");
+	(void)db.removeFile("bin/copied_from_path.bin");
+	(void)db.removeFile("bin/copied_from_callback.bin");
+	(void)db.removeFile("bin/invalid_callback.bin");
 
 	ESP_LOGI(DB_TESTER_TAG, "File storage test passed");
 }

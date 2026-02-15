@@ -129,6 +129,12 @@ class ESPJsonDB {
 							 Stream &in,
 							 size_t bytesToWrite,
 							 const ESPJsonDBFileOptions &opts = {});
+	DbStatus writeFileStream(const std::string &relativePath,
+							 const DbFileUploadPullCb &pullCb,
+							 const ESPJsonDBFileOptions &opts = {});
+	DbStatus writeFileFromPath(const std::string &relativePath,
+							   const std::string &sourceFsPath,
+							   const ESPJsonDBFileOptions &opts = {});
 	DbStatus writeFile(const std::string &relativePath, const uint8_t *data, size_t size, bool overwrite = true);
 	DbStatus writeTextFile(const std::string &relativePath, const std::string &text, bool overwrite = true);
 

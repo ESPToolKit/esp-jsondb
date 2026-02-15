@@ -11,9 +11,13 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
   - `cancelFileUpload(uploadId)`
   - `getFileUploadState(uploadId)`
 - New `examples/AsyncFileUpload` sketch.
+- Synchronous file streaming convenience APIs:
+  - `writeFileStream(path, pullCb, opts)` for callback-driven producers.
+  - `writeFileFromPath(path, sourceFsPath, opts)` to avoid manual source `File` management.
 
 ### Changed
 - `dropAll()`, `changeConfig()`, and `init()` now cancel pending/running async uploads before reconfiguring filesystem state.
+- Updated `examples/FileStreaming` and file storage tests to cover callback/path convenience write flows.
 
 ## [1.1.0] - 2026-02-12
 ### Added
