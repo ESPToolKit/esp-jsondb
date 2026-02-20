@@ -7,6 +7,7 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 ## [Unreleased]
 ### Added
 - `ESPJsonDBConfig::usePSRAMBuffers` to prefer PSRAM for ESPJsonDB-owned byte buffers when available (with automatic heap fallback).
+- `ESPWorker` integration for autosync and async file upload background task creation/lifecycle.
 - Background async file upload API:
   - `writeFileStreamAsync(path, pullCb, opts, doneCb)`
   - `cancelFileUpload(uploadId)`

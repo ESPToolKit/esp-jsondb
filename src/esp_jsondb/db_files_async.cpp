@@ -138,15 +138,16 @@ void ESPJsonDB::fileUploadTaskThunk(void *arg) {
 
 void ESPJsonDB::startFileUploadTaskUnlocked() {
 	if (_fileUploadTask != nullptr) return;
-	BaseType_t rc = xTaskCreatePinnedToCore(&ESPJsonDB::fileUploadTaskThunk,
-											 "db.file.upload",
-											 _cfg.stackSize,
-											 this,
-											 _cfg.priority,
-											 &_fileUploadTask,
-											 _cfg.coreId);
-	if (rc != pdPASS) {
-		_fileUploadTask = nullptr;
+	_fileUploadStopRequested.store(false, std::memory_order_release);
+	WorkerConfig taskConfig{};
+	taskConfig.name = "db.file.upload";
+	taskConfig.stackSizeBytes = _cfg.stackSize;
+	taskConfig.priority = _cfg.priority;
+	taskConfig.coreId = _cfg.coreId;
+	WorkerResult result = _cfg.usePSRAMBuffers ? _worker.spawnExt([this]() { fileUploadTaskLoop(); }, taskConfig)
+											   : _worker.spawn([this]() { fileUploadTaskLoop(); }, taskConfig);
+	if (result) {
+		_fileUploadTask = result.handler;
 	}
 }
 
@@ -159,12 +160,13 @@ void ESPJsonDB::stopFileUploadTaskUnlocked(bool cancelPending) {
 			job->state = DbFileUploadState::Cancelled;
 			job->finalStatus = {DbStatusCode::Busy, "upload cancelled"};
 		}
-		_uploadQueue.clear();
+			_uploadQueue.clear();
 	}
 	if (_fileUploadTask) {
-		TaskHandle_t t = _fileUploadTask;
+		_fileUploadStopRequested.store(true, std::memory_order_release);
+		(void)_fileUploadTask->wait(pdMS_TO_TICKS(200));
+		(void)_fileUploadTask->destroy();
 		_fileUploadTask = nullptr;
-		vTaskDelete(t);
 	}
 }
 
@@ -279,7 +281,7 @@ DbStatus ESPJsonDB::runFileUploadJob(const std::shared_ptr<FileUploadJob> &job, 
 }
 
 void ESPJsonDB::fileUploadTaskLoop() {
-	for (;;) {
+	while (!_fileUploadStopRequested.load(std::memory_order_acquire)) {
 		std::shared_ptr<FileUploadJob> job;
 		{
 			FrLock lk(_mu);

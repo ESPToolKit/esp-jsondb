@@ -10,7 +10,7 @@ A lightweight document database for ESP32 devices. ESPJsonDB borrows the ergonom
 ## Features
 - Simple, mongoose-like API for embedded projects (create/update/remove/find with predicates or JSON filters).
 - Optional in-memory cache with dirty-document tracking and change detection to avoid needless flash I/O.
-- Automatic LittleFS synchronisation on a background FreeRTOS task (`ESPJsonDBConfig` controls interval, stack, priority, and cache usage).
+- Automatic LittleFS synchronisation on a background worker task powered by `ESPWorker` (`ESPJsonDBConfig` controls interval, stack, priority, and cache usage).
 - MessagePack compression + StreamUtils for efficient read/write pipelines.
 - Schema registry with required fields, defaults, type validation, and collection-level unique constraints.
 - Event + error callbacks so firmware can observe sync cycles or take action when validation fails.

@@ -44,6 +44,7 @@ ESPJsonDB::~ESPJsonDB() {
 		stopFileUploadTaskUnlocked(true);
 	}
 	stopSyncTaskUnlocked();
+	_worker.deinit();
 }
 
 DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
@@ -59,6 +60,16 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 		_baseDir.pop_back();
 	}
 	_cfg = cfg;
+	_worker.deinit();
+	ESPWorker::Config workerConfig{};
+	workerConfig.maxWorkers = 2;
+	workerConfig.stackSizeBytes = _cfg.stackSize;
+	workerConfig.priority = _cfg.priority;
+	workerConfig.coreId = _cfg.coreId;
+	workerConfig.enableExternalStacks = true;
+	_worker.init(workerConfig);
+	_syncStopRequested.store(false, std::memory_order_release);
+	_fileUploadStopRequested.store(false, std::memory_order_release);
 	auto st = ensureFsReady();
 	if (!st.ok()) return st;
 
@@ -380,22 +391,36 @@ void ESPJsonDB::syncTaskThunk(void *arg) {
 }
 
 void ESPJsonDB::syncTaskLoop() {
-	for (;;) {
+	while (!_syncStopRequested.load(std::memory_order_acquire)) {
 		vTaskDelay(pdMS_TO_TICKS(_cfg.intervalMs));
+		if (_syncStopRequested.load(std::memory_order_acquire)) {
+			break;
+		}
 		(void)syncNow();
 	}
 }
 
 void ESPJsonDB::startSyncTaskUnlocked() {
 	if (_syncTask != nullptr) return;
-	xTaskCreatePinnedToCore(&ESPJsonDB::syncTaskThunk, "db.sync", _cfg.stackSize, this, _cfg.priority, &_syncTask, _cfg.coreId);
+	_syncStopRequested.store(false, std::memory_order_release);
+	WorkerConfig taskConfig{};
+	taskConfig.name = "db.sync";
+	taskConfig.stackSizeBytes = _cfg.stackSize;
+	taskConfig.priority = _cfg.priority;
+	taskConfig.coreId = _cfg.coreId;
+	WorkerResult result = _cfg.usePSRAMBuffers ? _worker.spawnExt([this]() { syncTaskLoop(); }, taskConfig)
+											   : _worker.spawn([this]() { syncTaskLoop(); }, taskConfig);
+	if (result) {
+		_syncTask = result.handler;
+	}
 }
 
 void ESPJsonDB::stopSyncTaskUnlocked() {
 	if (_syncTask) {
-		TaskHandle_t t = _syncTask;
+		_syncStopRequested.store(true, std::memory_order_release);
+		(void)_syncTask->wait(pdMS_TO_TICKS(200));
+		(void)_syncTask->destroy();
 		_syncTask = nullptr;
-		vTaskDelete(t);
 	}
 }
 
@@ -677,8 +702,16 @@ DbStatus ESPJsonDB::changeConfig(const ESPJsonDBConfig &cfg) {
 		for (auto &kv : _cols) {
 			if (kv.second) kv.second->setCacheEnabled(_cfg.cacheEnabled);
 		}
-		shouldStart = _cfg.autosync;
+			shouldStart = _cfg.autosync;
 	}
+	_worker.deinit();
+	ESPWorker::Config workerConfig{};
+	workerConfig.maxWorkers = 2;
+	workerConfig.stackSizeBytes = _cfg.stackSize;
+	workerConfig.priority = _cfg.priority;
+	workerConfig.coreId = _cfg.coreId;
+	workerConfig.enableExternalStacks = true;
+	_worker.init(workerConfig);
 	auto fsStatus = ensureFsReady();
 	if (!fsStatus.ok()) return fsStatus;
 	if (doColdSync) {

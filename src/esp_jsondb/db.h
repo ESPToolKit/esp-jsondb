@@ -8,9 +8,11 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <atomic>
 #include <type_traits>
 #include <utility>
 #include <vector>
+#include <ESPWorker.h>
 
 #include "collection/collection.h"
 #include "utils/dbTypes.h"
@@ -234,8 +236,11 @@ class ESPJsonDB {
 	DbStatus preloadCollectionsFromFs();
 
 	// Task handle for autosync
-	TaskHandle_t _syncTask = nullptr;
-	TaskHandle_t _fileUploadTask = nullptr;
+	std::shared_ptr<WorkerHandler> _syncTask{};
+	std::shared_ptr<WorkerHandler> _fileUploadTask{};
+	ESPWorker _worker{};
+	std::atomic<bool> _syncStopRequested{false};
+	std::atomic<bool> _fileUploadStopRequested{false};
 	uint32_t _nextUploadId = 1;
 	std::vector<uint32_t> _uploadQueue;
 	std::map<uint32_t, std::shared_ptr<FileUploadJob>> _uploadJobs;
