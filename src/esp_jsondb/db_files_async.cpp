@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "utils/fs_utils.h"
+#include "utils/jsondb_allocator.h"
 
 namespace {
 
@@ -174,7 +175,8 @@ DbStatus ESPJsonDB::runFileUploadJob(const std::shared_ptr<FileUploadJob> &job, 
 	}
 
 	const size_t chunkSize = job->opts.chunkSize < 32 ? 32 : job->opts.chunkSize;
-	std::vector<uint8_t> buffer(chunkSize);
+	JsonDbVector<uint8_t> buffer{JsonDbAllocator<uint8_t>(_cfg.usePSRAMBuffers)};
+	buffer.resize(chunkSize);
 
 	const std::string finalPath = joinPath(fileRootDir(), job->normalizedPath);
 	const std::string parentDir = parentDirForAsyncUpload(finalPath);

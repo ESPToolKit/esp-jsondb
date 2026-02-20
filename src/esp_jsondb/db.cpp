@@ -1,5 +1,6 @@
 #include "db.h"
 #include "utils/fs_utils.h"
+#include "utils/jsondb_allocator.h"
 #include <StreamUtils.h>
 FrMutex g_fsMutex; // definition of global FS mutex
 
@@ -176,7 +177,7 @@ DbResult<Collection *> ESPJsonDB::collection(const std::string &name) {
 		auto sit = _schemas.find(name);
 		if (sit != _schemas.end()) sc = sit->second;
 	}
-	auto col = std::make_unique<Collection>(*this, name, sc, _baseDir, _cfg.cacheEnabled, *_fs);
+	auto col = std::make_unique<Collection>(*this, name, sc, _baseDir, _cfg.cacheEnabled, _cfg.usePSRAMBuffers, *_fs);
 	auto st = col->loadFromFs(_baseDir);
 	if (!st.ok()) {
 		res.status = setLastError(st);
@@ -586,6 +587,7 @@ JsonDocument ESPJsonDB::getDiag() {
 	cfg["stackSize"] = cfgCopy.stackSize;
 	cfg["priority"] = static_cast<uint32_t>(cfgCopy.priority);
 	cfg["coreId"] = static_cast<int32_t>(cfgCopy.coreId);
+	cfg["usePSRAMBuffers"] = cfgCopy.usePSRAMBuffers;
 
 	setLastError({DbStatusCode::Ok, ""});
 	return doc;
@@ -789,7 +791,7 @@ DbStatus ESPJsonDB::restoreFromSnapshot(const JsonDocument &snapshot) {
 
 			// Serialize to MsgPack buffer
 			size_t sz = measureMsgPack(tmp);
-			std::vector<uint8_t> bytes;
+			JsonDbVector<uint8_t> bytes{JsonDbAllocator<uint8_t>(_cfg.usePSRAMBuffers)};
 			bytes.resize(sz);
 			size_t written = serializeMsgPack(tmp, bytes.data(), bytes.size());
 			if (written != sz) return setLastError({DbStatusCode::IoError, "serialize msgpack failed"});

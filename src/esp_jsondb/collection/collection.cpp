@@ -8,12 +8,14 @@ Collection::Collection(ESPJsonDB &db,
                        const Schema &schema,
                        std::string baseDir,
                        bool cacheEnabled,
+                       bool usePSRAMBuffers,
                        fs::FS &fs)
     : _db(&db),
       _name(name),
       _schema(schema),
       _baseDir(std::move(baseDir)),
       _cacheEnabled(cacheEnabled),
+      _usePSRAMBuffers(usePSRAMBuffers),
       _fs(&fs) {}
 
 void Collection::setCacheEnabled(bool enabled) {
@@ -150,7 +152,7 @@ DbResult<std::string> Collection::create(JsonObjectConst data) {
             recordStatus(res.status);
             return res;
         }
-		rec = std::make_shared<DocumentRecord>();
+		rec = std::make_shared<DocumentRecord>(_usePSRAMBuffers);
 		rec->meta.createdAt = nowUtcMs();
 		rec->meta.updatedAt = rec->meta.createdAt;
 		rec->meta.id = ObjectId().toHex();
@@ -246,7 +248,7 @@ DbResult<DocView> Collection::findById(const std::string &id) {
 
     auto rr = readDocFromFile(_baseDir, id);
     if (!rr.status.ok()) {
-        return {rr.status, DocView(nullptr, &_schema, &_mu, _db)};
+        return {rr.status, DocView(nullptr, &_schema, &_mu, _db, nullptr, _usePSRAMBuffers)};
     }
 
     if (_cacheEnabled) {
@@ -312,7 +314,7 @@ DbResult<DocView> Collection::findOne(std::function<bool(const DocView &)> pred)
     }
     DbStatus st{DbStatusCode::NotFound, "document not found"};
     recordStatus(st);
-    return {st, DocView(nullptr, &_schema, &_mu, _db)};
+    return {st, DocView(nullptr, &_schema, &_mu, _db, nullptr, _usePSRAMBuffers)};
 }
 
 DbResult<DocView> Collection::findOne(const JsonDocument &filter) {
@@ -370,7 +372,7 @@ DbStatus Collection::updateOne(std::function<bool(const DocView &)> pred,
 
 		// If not found and create requested, create a new record and apply mutator
 		if (!updated && create) {
-			auto rec = std::make_shared<DocumentRecord>();
+			auto rec = std::make_shared<DocumentRecord>(_usePSRAMBuffers);
 			rec->meta.createdAt = nowUtcMs();
 			rec->meta.updatedAt = rec->meta.createdAt;
 			rec->meta.id = ObjectId().toHex();
@@ -462,7 +464,7 @@ DbStatus Collection::updateOne(const JsonDocument &filter,
 
 		if (!updated && create) {
             // Create a new document merging filter and patch
-            auto rec = std::make_shared<DocumentRecord>();
+            auto rec = std::make_shared<DocumentRecord>(_usePSRAMBuffers);
             rec->meta.createdAt = nowUtcMs();
             rec->meta.updatedAt = rec->meta.createdAt;
             rec->meta.id = ObjectId().toHex();
@@ -605,7 +607,7 @@ DbResult<std::shared_ptr<DocumentRecord>> Collection::readDocFromFile(const std:
         recordStatus(res.status);
         return res;
     }
-    auto rec = std::make_shared<DocumentRecord>();
+    auto rec = std::make_shared<DocumentRecord>(_usePSRAMBuffers);
     rec->meta.id = id;
     rec->meta.createdAt = nowUtcMs();
     rec->meta.updatedAt = rec->meta.createdAt;
@@ -664,12 +666,12 @@ DbStatus Collection::persistImmediate(const std::shared_ptr<DocumentRecord> &rec
 
 DocView Collection::makeView(std::shared_ptr<DocumentRecord> rec) {
 	if (_cacheEnabled) {
-		return DocView(std::move(rec), &_schema, &_mu, _db);
+		return DocView(std::move(rec), &_schema, &_mu, _db, nullptr, _usePSRAMBuffers);
 	}
 	auto sink = [this](const std::shared_ptr<DocumentRecord> &record) {
 		return persistImmediate(record);
 	};
-	return DocView(std::move(rec), &_schema, &_mu, _db, sink);
+	return DocView(std::move(rec), &_schema, &_mu, _db, sink, _usePSRAMBuffers);
 }
 
 DbStatus Collection::updateOneNoCache(std::function<bool(const DocView &)> pred,
@@ -708,7 +710,7 @@ DbStatus Collection::updateOneNoCache(std::function<bool(const DocView &)> pred,
 		}
 	}
 	if (create) {
-		auto rec = std::make_shared<DocumentRecord>();
+		auto rec = std::make_shared<DocumentRecord>(_usePSRAMBuffers);
 		rec->meta.createdAt = nowUtcMs();
 		rec->meta.updatedAt = rec->meta.createdAt;
 		rec->meta.id = ObjectId().toHex();
@@ -781,7 +783,7 @@ DbStatus Collection::updateOneJsonNoCache(const JsonDocument &filter,
 		return recordStatus(st);
 	}
 	if (create) {
-		auto rec = std::make_shared<DocumentRecord>();
+		auto rec = std::make_shared<DocumentRecord>(_usePSRAMBuffers);
 		rec->meta.createdAt = nowUtcMs();
 		rec->meta.updatedAt = rec->meta.createdAt;
 		rec->meta.id = ObjectId().toHex();
@@ -903,7 +905,10 @@ DbStatus Collection::flushDirtyToFs(const std::string &baseDir, bool &didWork) {
 	std::vector<std::string> toDelete;
 	struct PendingWrite {
 		std::string id;
-		std::vector<uint8_t> bytes;
+		JsonDbVector<uint8_t> bytes;
+
+		explicit PendingWrite(bool usePSRAMBuffers)
+			: bytes(JsonDbAllocator<uint8_t>(usePSRAMBuffers)) {}
 	};
 	std::vector<PendingWrite> toWrite;
 	{
@@ -912,7 +917,10 @@ DbStatus Collection::flushDirtyToFs(const std::string &baseDir, bool &didWork) {
 		for (auto &kv : _docs) {
 			auto &rec = kv.second;
 			if (rec->meta.dirty) {
-				toWrite.push_back(PendingWrite{rec->meta.id, rec->msgpack});
+				PendingWrite pending(_usePSRAMBuffers);
+				pending.id = rec->meta.id;
+				pending.bytes = rec->msgpack;
+				toWrite.push_back(std::move(pending));
 				rec->meta.dirty = false;
 			}
 		}
@@ -936,7 +944,7 @@ DbStatus Collection::flushDirtyToFs(const std::string &baseDir, bool &didWork) {
 
 	// Flush writes
     for (auto &pw : toWrite) {
-        DocumentRecord tmp;
+        DocumentRecord tmp(_usePSRAMBuffers);
         tmp.meta.id = pw.id;
         tmp.msgpack = std::move(pw.bytes);
         auto st = writeDocToFile(baseDir, tmp);

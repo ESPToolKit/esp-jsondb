@@ -36,6 +36,10 @@
       "name": "StreamUtils",
       "owner": "bblanchon",
       "version": ">=1.7.0"
+    },
+    {
+      "name": "ESPBufferManager",
+      "version": "https://github.com/ESPToolKit/esp-buffer-manager.git"
     }
   ],
   "headers": ["ESPJsonDB.h"],

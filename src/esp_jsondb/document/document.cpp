@@ -8,8 +8,18 @@ DocView::DocView(std::shared_ptr<DocumentRecord> rec,
 				 const Schema *schema,
 				 FrMutex *mu,
 				 ESPJsonDB *db,
-				 std::function<DbStatus(const std::shared_ptr<DocumentRecord>&)> commitSink)
-	: _rec(std::move(rec)), _schema(schema), _mu(mu), _db(db), _commitSink(std::move(commitSink)) {}
+				 std::function<DbStatus(const std::shared_ptr<DocumentRecord>&)> commitSink,
+				 bool usePSRAMBuffers)
+	: _rec(std::move(rec)),
+	  _schema(schema),
+	  _mu(mu),
+	  _db(db),
+	  _commitSink(std::move(commitSink)),
+	  _usePSRAMBuffers(usePSRAMBuffers)
+#if ESP_JSONDB_HAS_JSONDOC_ALLOCATOR
+	  , _docAllocator(usePSRAMBuffers)
+#endif
+{}
 
 DocView::~DocView() {
 	// no auto-commit by default; discard decoded state
@@ -19,7 +29,12 @@ DbStatus DocView::decode() {
 	std::unique_ptr<FrLock> guard;
 	if (_mu) guard = std::make_unique<FrLock>(*_mu);
 	if (_doc) return recordStatus({DbStatusCode::Ok, ""});
+#if ESP_JSONDB_HAS_JSONDOC_ALLOCATOR
+	_docAllocator.setUsePSRAMBuffers(_usePSRAMBuffers);
+	_doc = std::make_unique<JsonDocument>(&_docAllocator);
+#else
 	_doc = std::make_unique<JsonDocument>();
+#endif
 	// If there is no backing record (e.g., NotFound), treat as empty object
 	if (!_rec) {
 		_doc->to<JsonObject>();
@@ -190,19 +205,19 @@ DocRef DocView::getRef(const char *field) const {
 DocView DocView::populate(const char *field, uint8_t maxDepth) const {
 	if (maxDepth == 0) {
 		recordStatus({DbStatusCode::InvalidArgument, "max depth reached"});
-		return DocView(nullptr, nullptr, nullptr, _db);
+		return DocView(nullptr, nullptr, nullptr, _db, nullptr, _usePSRAMBuffers);
 	}
 	auto ref = getRef(field);
 	if (!ref.valid()) {
 		recordStatus({DbStatusCode::InvalidArgument, "field not DocRef"});
-		return DocView(nullptr, nullptr, nullptr, _db);
+		return DocView(nullptr, nullptr, nullptr, _db, nullptr, _usePSRAMBuffers);
 	}
 	if (!_db) {
 		recordStatus({DbStatusCode::InvalidArgument, "database context unavailable"});
-		return DocView(nullptr, nullptr, nullptr, _db);
+		return DocView(nullptr, nullptr, nullptr, _db, nullptr, _usePSRAMBuffers);
 	}
 	auto fr = _db->findById(ref.collection, ref.id);
-	if (!fr.status.ok()) return DocView(nullptr, nullptr, nullptr, _db);
+	if (!fr.status.ok()) return DocView(nullptr, nullptr, nullptr, _db, nullptr, _usePSRAMBuffers);
 	if (maxDepth > 1) {
 		for (auto kv : fr.value.asObjectConst()) {
 			auto nested = docRefFromJson(kv.value());

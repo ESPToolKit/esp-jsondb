@@ -6,6 +6,7 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 
 ## [Unreleased]
 ### Added
+- `ESPJsonDBConfig::usePSRAMBuffers` to prefer PSRAM for ESPJsonDB-owned byte buffers when available (with automatic heap fallback).
 - Background async file upload API:
   - `writeFileStreamAsync(path, pullCb, opts, doneCb)`
   - `cancelFileUpload(uploadId)`
@@ -18,6 +19,13 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 - New `examples/AsyncLargeFileUpload` sketch showing background large-binary upload with progress polling and hash verification.
 
 ### Changed
+- Routed internal byte-buffer-heavy paths through `ESPBufferManager` policy:
+  - document msgpack storage (`DocumentRecord::msgpack`)
+  - sync/async file upload and file streaming chunk buffers
+  - snapshot restore msgpack serialization buffers
+  - dirty flush pending-write byte snapshots
+- Routed decoded `DocView` `JsonDocument` pools through `ESPBufferManager` when building with ArduinoJson v7 allocator support, with automatic fallback to default allocator paths when unavailable.
+- `getDiag()` now reports `config.usePSRAMBuffers`.
 - `dropAll()`, `changeConfig()`, and `init()` now cancel pending/running async uploads before reconfiguring filesystem state.
 - Updated `examples/FileStreaming` and file storage tests to cover callback/path convenience write flows.
 

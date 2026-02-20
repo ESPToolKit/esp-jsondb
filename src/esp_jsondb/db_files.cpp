@@ -5,6 +5,7 @@
 #include <algorithm>
 
 #include "utils/fs_utils.h"
+#include "utils/jsondb_allocator.h"
 
 namespace {
 
@@ -18,6 +19,7 @@ std::string parentDirOf(const std::string &path) {
 
 DbStatus writeFromPullCb(fs::FS &filesystem,
 						 const std::string &finalPath,
+						 bool usePSRAMBuffers,
 						 const ESPJsonDBFileOptions &opts,
 						 const DbFileUploadPullCb &pullCb,
 						 size_t &totalWritten) {
@@ -27,7 +29,8 @@ DbStatus writeFromPullCb(fs::FS &filesystem,
 	}
 
 	const size_t chunkSize = opts.chunkSize < 32 ? 32 : opts.chunkSize;
-	std::vector<uint8_t> buffer(chunkSize);
+	JsonDbVector<uint8_t> buffer{JsonDbAllocator<uint8_t>(usePSRAMBuffers)};
+	buffer.resize(chunkSize);
 
 	const std::string parentDir = parentDirOf(finalPath);
 	const std::string tmpPath = finalPath + ".tmp";
@@ -180,7 +183,7 @@ DbStatus ESPJsonDB::writeFileStream(const std::string &relativePath,
 	};
 
 	size_t totalWritten = 0;
-	auto st = writeFromPullCb(*_fs, finalPath, opts, pullCb, totalWritten);
+	auto st = writeFromPullCb(*_fs, finalPath, _cfg.usePSRAMBuffers, opts, pullCb, totalWritten);
 	if (!st.ok()) return setLastError(st);
 	if (totalWritten != bytesToWrite) {
 		return setLastError({DbStatusCode::IoError, "written size mismatch"});
@@ -201,7 +204,7 @@ DbStatus ESPJsonDB::writeFileStream(const std::string &relativePath,
 
 	const std::string finalPath = joinPath(fileRootDir(), normalized);
 	size_t totalWritten = 0;
-	auto st = writeFromPullCb(*_fs, finalPath, opts, pullCb, totalWritten);
+	auto st = writeFromPullCb(*_fs, finalPath, _cfg.usePSRAMBuffers, opts, pullCb, totalWritten);
 	return setLastError(st);
 }
 
@@ -313,7 +316,8 @@ DbResult<size_t> ESPJsonDB::readFileStream(const std::string &relativePath, Stre
 	}
 
 	if (chunkSize < 32) chunkSize = 32;
-	std::vector<uint8_t> buffer(chunkSize);
+	JsonDbVector<uint8_t> buffer{JsonDbAllocator<uint8_t>(_cfg.usePSRAMBuffers)};
+	buffer.resize(chunkSize);
 	const std::string path = joinPath(fileRootDir(), normalized);
 
 	FrLock fs(g_fsMutex);

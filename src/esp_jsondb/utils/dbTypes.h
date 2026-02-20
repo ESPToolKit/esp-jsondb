@@ -35,6 +35,7 @@ struct ESPJsonDBConfig {
 	bool formatOnFail = true;
 	uint8_t maxOpenFiles = 10;
 	const char *partitionLabel = "spiffs";
+	bool usePSRAMBuffers = false; // Prefer PSRAM for internal byte buffers when available
 };
 
 struct ESPJsonDBFileOptions {

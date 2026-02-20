@@ -12,10 +12,43 @@
 
 #include "../utils/dbTypes.h"
 #include "../utils/fr_mutex.h"
+#include "../utils/jsondb_allocator.h"
 #include "../utils/refs.h"
 #include "../utils/schema.h"
 
 class ESPJsonDB;
+
+#if defined(ARDUINOJSON_VERSION_MAJOR) && (ARDUINOJSON_VERSION_MAJOR >= 7)
+#define ESP_JSONDB_HAS_JSONDOC_ALLOCATOR 1
+#else
+#define ESP_JSONDB_HAS_JSONDOC_ALLOCATOR 0
+#endif
+
+#if ESP_JSONDB_HAS_JSONDOC_ALLOCATOR
+class JsonDbDocAllocator : public ArduinoJson::Allocator {
+  public:
+	explicit JsonDbDocAllocator(bool usePSRAMBuffers = false) : _usePSRAMBuffers(usePSRAMBuffers) {}
+
+	void *allocate(size_t size) override {
+		return jsondb_allocator_detail::allocate(size, _usePSRAMBuffers);
+	}
+
+	void deallocate(void *ptr) override {
+		jsondb_allocator_detail::deallocate(ptr);
+	}
+
+	void *reallocate(void *ptr, size_t new_size) override {
+		return jsondb_allocator_detail::reallocate(ptr, new_size, _usePSRAMBuffers);
+	}
+
+	void setUsePSRAMBuffers(bool enabled) {
+		_usePSRAMBuffers = enabled;
+	}
+
+  private:
+	bool _usePSRAMBuffers = false;
+};
+#endif
 
 /**
  * IMPORTANT: The database uses system UTC time for timestamps (ISO 8601) milliseconds.
@@ -33,8 +66,11 @@ struct DocumentMeta {
 
 // Internal storage unit (owned by Collection)
 struct DocumentRecord {
+	explicit DocumentRecord(bool usePSRAMBuffers = false)
+		: msgpack(JsonDbAllocator<uint8_t>(usePSRAMBuffers)) {}
+
 	DocumentMeta meta;
-	std::vector<uint8_t> msgpack; // authoritative source
+	JsonDbVector<uint8_t> msgpack; // authoritative source
 								  // Optional decoded cache; created on demand and freed when view destroyed
 								  // Decoding/encoding uses ArduinoJson.
 };
@@ -48,7 +84,8 @@ class DocView {
 			const Schema *schema = nullptr,
 			FrMutex *mu = nullptr,
 			ESPJsonDB *db = nullptr,
-			std::function<DbStatus(const std::shared_ptr<DocumentRecord>&)> commitSink = nullptr);
+			std::function<DbStatus(const std::shared_ptr<DocumentRecord>&)> commitSink = nullptr,
+			bool usePSRAMBuffers = false);
 	~DocView(); // optional auto-commit if enabled
 
 	// non-copyable, movable
@@ -94,6 +131,10 @@ class DocView {
 	FrMutex *_mu = nullptr; // optional: used when called without external lock
 	ESPJsonDB *_db = nullptr;
 	std::function<DbStatus(const std::shared_ptr<DocumentRecord>&)> _commitSink;
+	bool _usePSRAMBuffers = false;
+#if ESP_JSONDB_HAS_JSONDOC_ALLOCATOR
+	JsonDbDocAllocator _docAllocator;
+#endif
 	DbStatus decode();
 	DbStatus encode();
 	DbStatus recordStatus(const DbStatus &st) const;

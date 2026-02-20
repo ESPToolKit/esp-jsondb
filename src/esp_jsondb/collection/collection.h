@@ -16,6 +16,7 @@
 #include "../document/document.h"
 #include "../utils/dbTypes.h"
 #include "../utils/fr_mutex.h"
+#include "../utils/jsondb_allocator.h"
 #include "../utils/objectId.h"
 #include "../utils/schema.h"
 
@@ -28,6 +29,7 @@ class Collection {
                const Schema &schema,
                std::string baseDir,
                bool cacheEnabled,
+               bool usePSRAMBuffers,
                fs::FS &fs);
     const std::string &name() const { return _name; }
     bool cacheEnabled() const { return _cacheEnabled; }
@@ -121,6 +123,7 @@ class Collection {
 	FrMutex _mu;						  // guards _docs, _deletedIds
 	std::string _baseDir;
 	bool _cacheEnabled = true;
+	bool _usePSRAMBuffers = false;
 	fs::FS *_fs = nullptr; // active filesystem (owned by caller)
 
 	DbStatus writeDocToFile(const std::string &baseDir, const DocumentRecord &r);
