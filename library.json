@@ -40,10 +40,6 @@
     {
       "name": "ESPBufferManager",
       "version": "https://github.com/ESPToolKit/esp-buffer-manager.git"
-    },
-    {
-      "name": "ESPWorker",
-      "version": "https://github.com/ESPToolKit/esp-worker.git"
     }
   ],
   "headers": ["ESPJsonDB.h"],

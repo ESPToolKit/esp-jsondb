@@ -2,6 +2,11 @@
 #include "utils/fs_utils.h"
 #include "utils/jsondb_allocator.h"
 #include <StreamUtils.h>
+
+namespace {
+constexpr uint32_t kTaskStopTimeoutMs = 200;
+} // namespace
+
 FrMutex g_fsMutex; // definition of global FS mutex
 
 DbStatus ESPJsonDB::ensureFsReady() {
@@ -30,6 +35,40 @@ DbStatus ESPJsonDB::ensureReady() const {
 	return {DbStatusCode::Ok, ""};
 }
 
+uint32_t ESPJsonDB::stackBytesToWords(uint32_t stackBytes) {
+	const uint32_t wordSize = static_cast<uint32_t>(sizeof(StackType_t));
+	return (stackBytes + wordSize - 1U) / wordSize;
+}
+
+bool ESPJsonDB::createTask(TaskFunction_t entry, const char *name, TaskHandle_t &outHandle) {
+	const uint32_t stackDepthWords = stackBytesToWords(_cfg.stackSize);
+	BaseType_t rc = xTaskCreatePinnedToCore(entry,
+											name,
+											stackDepthWords,
+											this,
+											_cfg.priority,
+											&outHandle,
+											_cfg.coreId);
+	return rc == pdPASS;
+}
+
+void ESPJsonDB::stopTask(TaskHandle_t &taskHandle, std::atomic<bool> &stopRequested, std::atomic<bool> &taskExited) {
+	if (taskHandle == nullptr) return;
+	stopRequested.store(true, std::memory_order_release);
+	const uint32_t startMs = millis();
+	while (!taskExited.load(std::memory_order_acquire)) {
+		if ((millis() - startMs) >= kTaskStopTimeoutMs) {
+			break;
+		}
+		vTaskDelay(pdMS_TO_TICKS(1));
+	}
+	if (!taskExited.load(std::memory_order_acquire)) {
+		vTaskDelete(taskHandle);
+		taskExited.store(true, std::memory_order_release);
+	}
+	taskHandle = nullptr;
+}
+
 bool ESPJsonDB::isReservedName(const std::string &name) const {
 	return name == "_files";
 }
@@ -44,7 +83,6 @@ ESPJsonDB::~ESPJsonDB() {
 		stopFileUploadTaskUnlocked(true);
 	}
 	stopSyncTaskUnlocked();
-	_worker.deinit();
 }
 
 DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
@@ -60,14 +98,6 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 		_baseDir.pop_back();
 	}
 	_cfg = cfg;
-	_worker.deinit();
-	ESPWorker::Config workerConfig{};
-	workerConfig.maxWorkers = 2;
-	workerConfig.stackSizeBytes = _cfg.stackSize;
-	workerConfig.priority = _cfg.priority;
-	workerConfig.coreId = _cfg.coreId;
-	workerConfig.enableExternalStacks = true;
-	_worker.init(workerConfig);
 	_syncStopRequested.store(false, std::memory_order_release);
 	_fileUploadStopRequested.store(false, std::memory_order_release);
 	auto st = ensureFsReady();
@@ -398,30 +428,24 @@ void ESPJsonDB::syncTaskLoop() {
 		}
 		(void)syncNow();
 	}
+	_syncTaskExited.store(true, std::memory_order_release);
+	vTaskDelete(nullptr);
 }
 
 void ESPJsonDB::startSyncTaskUnlocked() {
 	if (_syncTask != nullptr) return;
 	_syncStopRequested.store(false, std::memory_order_release);
-	WorkerConfig taskConfig{};
-	taskConfig.name = "db.sync";
-	taskConfig.stackSizeBytes = _cfg.stackSize;
-	taskConfig.priority = _cfg.priority;
-	taskConfig.coreId = _cfg.coreId;
-	WorkerResult result = _cfg.usePSRAMBuffers ? _worker.spawnExt([this]() { syncTaskLoop(); }, taskConfig)
-											   : _worker.spawn([this]() { syncTaskLoop(); }, taskConfig);
-	if (result) {
-		_syncTask = result.handler;
+	_syncTaskExited.store(false, std::memory_order_release);
+	TaskHandle_t handle = nullptr;
+	if (createTask(syncTaskThunk, "db.sync", handle)) {
+		_syncTask = handle;
+	} else {
+		_syncTaskExited.store(true, std::memory_order_release);
 	}
 }
 
 void ESPJsonDB::stopSyncTaskUnlocked() {
-	if (_syncTask) {
-		_syncStopRequested.store(true, std::memory_order_release);
-		(void)_syncTask->wait(pdMS_TO_TICKS(200));
-		(void)_syncTask->destroy();
-		_syncTask = nullptr;
-	}
+	stopTask(_syncTask, _syncStopRequested, _syncTaskExited);
 }
 
 namespace {
@@ -704,14 +728,6 @@ DbStatus ESPJsonDB::changeConfig(const ESPJsonDBConfig &cfg) {
 		}
 			shouldStart = _cfg.autosync;
 	}
-	_worker.deinit();
-	ESPWorker::Config workerConfig{};
-	workerConfig.maxWorkers = 2;
-	workerConfig.stackSizeBytes = _cfg.stackSize;
-	workerConfig.priority = _cfg.priority;
-	workerConfig.coreId = _cfg.coreId;
-	workerConfig.enableExternalStacks = true;
-	_worker.init(workerConfig);
 	auto fsStatus = ensureFsReady();
 	if (!fsStatus.ok()) return fsStatus;
 	if (doColdSync) {

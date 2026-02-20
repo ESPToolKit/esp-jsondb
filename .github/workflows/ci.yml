@@ -87,10 +87,6 @@ jobs:
             arduino-cli lib install --git-url https://github.com/ESPToolKit/esp-buffer-manager.git || \
               git clone --depth 1 https://github.com/ESPToolKit/esp-buffer-manager.git "${HOME}/Arduino/libraries/ESPBufferManager"
           fi
-          if [ ! -d "${HOME}/Arduino/libraries/ESPWorker" ]; then
-            arduino-cli lib install --git-url https://github.com/ESPToolKit/esp-worker.git || \
-              git clone --depth 1 https://github.com/ESPToolKit/esp-worker.git "${HOME}/Arduino/libraries/ESPWorker"
-          fi
 
       - name: Add local library to sketchbook
         run: |

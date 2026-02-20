@@ -7,7 +7,6 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 ## [Unreleased]
 ### Added
 - `ESPJsonDBConfig::usePSRAMBuffers` to prefer PSRAM for ESPJsonDB-owned byte buffers when available (with automatic heap fallback).
-- `ESPWorker` integration for autosync and async file upload background task creation/lifecycle.
 - Background async file upload API:
   - `writeFileStreamAsync(path, pullCb, opts, doneCb)`
   - `cancelFileUpload(uploadId)`
@@ -20,6 +19,8 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 - New `examples/AsyncLargeFileUpload` sketch showing background large-binary upload with progress polling and hash verification.
 
 ### Changed
+- Replaced `ESPWorker` task creation with native FreeRTOS task handling for autosync and async upload workers.
+- Task stacks for ESPJsonDB background tasks are now always allocated from internal RAM (never PSRAM/external task stacks).
 - Routed internal byte-buffer-heavy paths through `ESPBufferManager` policy:
   - document msgpack storage (`DocumentRecord::msgpack`)
   - sync/async file upload and file streaming chunk buffers

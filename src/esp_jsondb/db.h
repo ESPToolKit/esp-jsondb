@@ -12,7 +12,6 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
-#include <ESPWorker.h>
 
 #include "collection/collection.h"
 #include "utils/dbTypes.h"
@@ -230,17 +229,21 @@ class ESPJsonDB {
 	void stopFileUploadTaskUnlocked(bool cancelPending);
 	DbStatus runFileUploadJob(const std::shared_ptr<FileUploadJob> &job, size_t &bytesWritten);
 	bool isUploadTerminal(DbFileUploadState state) const;
+	bool createTask(TaskFunction_t entry, const char *name, TaskHandle_t &outHandle);
+	void stopTask(TaskHandle_t &taskHandle, std::atomic<bool> &stopRequested, std::atomic<bool> &taskExited);
+	static uint32_t stackBytesToWords(uint32_t stackBytes);
 
 	// Refresh diag cache from filesystem (expensive; used only for explicit full refresh paths)
 	void refreshDiagFromFs();
 	DbStatus preloadCollectionsFromFs();
 
-	// Task handle for autosync
-	std::shared_ptr<WorkerHandler> _syncTask{};
-	std::shared_ptr<WorkerHandler> _fileUploadTask{};
-	ESPWorker _worker{};
+	// FreeRTOS task handles for autosync and async uploads
+	TaskHandle_t _syncTask = nullptr;
+	TaskHandle_t _fileUploadTask = nullptr;
 	std::atomic<bool> _syncStopRequested{false};
+	std::atomic<bool> _syncTaskExited{true};
 	std::atomic<bool> _fileUploadStopRequested{false};
+	std::atomic<bool> _fileUploadTaskExited{true};
 	uint32_t _nextUploadId = 1;
 	std::vector<uint32_t> _uploadQueue;
 	std::map<uint32_t, std::shared_ptr<FileUploadJob>> _uploadJobs;

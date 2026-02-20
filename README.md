@@ -10,7 +10,7 @@ A lightweight document database for ESP32 devices. ESPJsonDB borrows the ergonom
 ## Features
 - Simple, mongoose-like API for embedded projects (create/update/remove/find with predicates or JSON filters).
 - Optional in-memory cache with dirty-document tracking and change detection to avoid needless flash I/O.
-- Automatic LittleFS synchronisation on a background worker task powered by `ESPWorker` (`ESPJsonDBConfig` controls interval, stack, priority, and cache usage).
+- Automatic LittleFS synchronisation on a background FreeRTOS task (`ESPJsonDBConfig` controls interval, stack, priority, and core affinity).
 - MessagePack compression + StreamUtils for efficient read/write pipelines.
 - Schema registry with required fields, defaults, type validation, and collection-level unique constraints.
 - Event + error callbacks so firmware can observe sync cycles or take action when validation fails.
@@ -142,7 +142,7 @@ db.writeFileStream(
 - `intervalMs`, `stackSize`, `priority`, `coreId` – background autosync cadence & FreeRTOS tuning.
 - `autosync`, `coldSync`, `cacheEnabled` – enable/disable timers and caches.
 - `fs`, `initFileSystem`, `formatOnFail`, `partitionLabel`, `maxOpenFiles` – file system integration; pass your own `fs::FS` if you mount LittleFS elsewhere.
-- `usePSRAMBuffers` – prefer PSRAM for internal msgpack + file stream byte buffers and decoded `DocView` `JsonDocument` pools (ArduinoJson v7), with safe fallback to default heap.
+- `usePSRAMBuffers` – prefer PSRAM for internal msgpack + file stream byte buffers and decoded `DocView` `JsonDocument` pools (ArduinoJson v7), with safe fallback to default heap. Task stacks are always created from internal RAM.
 
 Stack sizes are expressed in bytes.
 
