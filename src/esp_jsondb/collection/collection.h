@@ -102,7 +102,7 @@ class Collection {
 	DbStatus flushDirtyToFs(const std::string &baseDir, bool &didWork);
 
     // Optional: stats
-    size_t size() const { return _cacheEnabled ? _docs.size() : countDocumentsFromFs(); }
+    size_t size() const { return _docs.size(); }
 
     // Mark all records as removed (used when dropping a collection)
     void markAllRemoved() {
@@ -158,44 +158,27 @@ class Collection {
 template <typename Pred>
 DbResult<size_t> Collection::removeMany(Pred &&p) {
     DbResult<size_t> res{};
-    if (_cacheEnabled) {
-        std::vector<std::string> toErase;
-        {
-            FrLock lk(_mu);
-            toErase.reserve(_docs.size());
-            for (auto &kv : _docs) {
-                DocView v(kv.second, &_schema, nullptr, _db);
-                if (p(v)) {
-                    toErase.push_back(kv.first);
-                }
-            }
-            for (auto &id : toErase) {
-                auto it = _docs.find(id);
-                if (it != _docs.end()) {
-                    it->second->meta.removed = true;
-                    _deletedIds.push_back(id);
-                    _docs.erase(it);
-                }
-            }
-            if (!toErase.empty()) _dirty = true;
-        }
-        res.value = toErase.size();
-    } else {
-        size_t removedCount = 0;
-        auto ids = listDocumentIdsFromFs();
-        for (const auto &id : ids) {
-            auto rr = readDocFromFile(_baseDir, id);
-            if (!rr.status.ok()) continue;
-            auto view = makeView(rr.value);
-            if (p(view)) {
-                bool removed = false;
-                auto st = removeByIdNoCache(id, removed);
-                if (!st.ok()) continue;
-                if (removed) ++removedCount;
+    std::vector<std::string> toErase;
+    {
+        FrLock lk(_mu);
+        toErase.reserve(_docs.size());
+        for (auto &kv : _docs) {
+            DocView v(kv.second, &_schema, nullptr, _db);
+            if (p(v)) {
+                toErase.push_back(kv.first);
             }
         }
-        res.value = removedCount;
+        for (auto &id : toErase) {
+            auto it = _docs.find(id);
+            if (it != _docs.end()) {
+                it->second->meta.removed = true;
+                _deletedIds.push_back(id);
+                _docs.erase(it);
+            }
+        }
+        if (!toErase.empty()) _dirty = true;
     }
+    res.value = toErase.size();
     noteDeletedInDiag(res.value);
     res.status = {DbStatusCode::Ok, ""};
     recordStatus(res.status);
@@ -206,61 +189,32 @@ template <typename Pred, typename Mut, typename>
 DbResult<size_t> Collection::updateMany(Pred &&p, Mut &&m) {
     DbResult<size_t> res{};
     size_t count = 0;
-    if (_cacheEnabled) {
-        FrLock lk(_mu);
-        for (auto &kv : _docs) {
-            DocView v(kv.second, &_schema, nullptr, _db);
-            if (p(v)) {
-                m(v);
-                if (_schema.hasValidate()) {
-                    auto obj = v.asObject();
-                    auto ve = _schema.runPreSave(obj);
-                    if (!ve.valid) {
-                        v.discard();
-                        continue;
-                    }
-                    // Unique constraints
-                    auto ust = checkUniqueFields(obj, kv.second->meta.id);
-                    if (!ust.ok()) {
-                        v.discard();
-                        continue;
-                    }
+    FrLock lk(_mu);
+    for (auto &kv : _docs) {
+        DocView v(kv.second, &_schema, nullptr, _db);
+        if (p(v)) {
+            m(v);
+            if (_schema.hasValidate()) {
+                auto obj = v.asObject();
+                auto ve = _schema.runPreSave(obj);
+                if (!ve.valid) {
+                    v.discard();
+                    continue;
                 }
-                auto st = v.commit();
-                if (st.ok()) {
-                    ++count;
+                // Unique constraints
+                auto ust = checkUniqueFields(obj, kv.second->meta.id);
+                if (!ust.ok()) {
+                    v.discard();
+                    continue;
                 }
             }
-        }
-        if (count) _dirty = true;
-    } else {
-        auto ids = listDocumentIdsFromFs();
-        for (const auto &id : ids) {
-            auto rr = readDocFromFile(_baseDir, id);
-            if (!rr.status.ok()) continue;
-            auto view = makeView(rr.value);
-            if (p(view)) {
-                m(view);
-                if (_schema.hasValidate()) {
-                    auto obj = view.asObject();
-                    auto ve = _schema.runPreSave(obj);
-                    if (!ve.valid) {
-                        view.discard();
-                        continue;
-                    }
-                    auto ust = checkUniqueFields(obj, id);
-                    if (!ust.ok()) {
-                        view.discard();
-                        continue;
-                    }
-                }
-                auto st = view.commit();
-                if (st.ok()) {
-                    ++count;
-                }
+            auto st = v.commit();
+            if (st.ok()) {
+                ++count;
             }
         }
     }
+    if (count) _dirty = true;
     res.status = {DbStatusCode::Ok, ""};
     recordStatus(res.status);
     res.value = count;
@@ -271,63 +225,33 @@ template <typename Mut, typename>
 DbResult<size_t> Collection::updateMany(Mut &&m) {
     DbResult<size_t> res{};
     size_t count = 0;
-    if (_cacheEnabled) {
-        FrLock lk(_mu);
-        for (auto &kv : _docs) {
-            DocView v(kv.second, &_schema, nullptr, _db);
-            if (m(v)) {
-                if (_schema.hasValidate()) {
-                    auto obj = v.asObject();
-                    auto ve = _schema.runPreSave(obj);
-                    if (!ve.valid) {
-                        v.discard();
-                        continue;
-                    }
-                    // Unique constraints
-                    auto ust = checkUniqueFields(obj, kv.second->meta.id);
-                    if (!ust.ok()) {
-                        v.discard();
-                        continue;
-                    }
+    FrLock lk(_mu);
+    for (auto &kv : _docs) {
+        DocView v(kv.second, &_schema, nullptr, _db);
+        if (m(v)) {
+            if (_schema.hasValidate()) {
+                auto obj = v.asObject();
+                auto ve = _schema.runPreSave(obj);
+                if (!ve.valid) {
+                    v.discard();
+                    continue;
                 }
-                auto st = v.commit();
-                if (st.ok()) {
-                    ++count;
+                // Unique constraints
+                auto ust = checkUniqueFields(obj, kv.second->meta.id);
+                if (!ust.ok()) {
+                    v.discard();
+                    continue;
                 }
-            } else {
-                v.discard();
             }
-        }
-        if (count) _dirty = true;
-    } else {
-        auto ids = listDocumentIdsFromFs();
-        for (const auto &id : ids) {
-            auto rr = readDocFromFile(_baseDir, id);
-            if (!rr.status.ok()) continue;
-            auto view = makeView(rr.value);
-            if (m(view)) {
-                if (_schema.hasValidate()) {
-                    auto obj = view.asObject();
-                    auto ve = _schema.runPreSave(obj);
-                    if (!ve.valid) {
-                        view.discard();
-                        continue;
-                    }
-                    auto ust = checkUniqueFields(obj, id);
-                    if (!ust.ok()) {
-                        view.discard();
-                        continue;
-                    }
-                }
-                auto st = view.commit();
-                if (st.ok()) {
-                    ++count;
-                }
-            } else {
-                view.discard();
+            auto st = v.commit();
+            if (st.ok()) {
+                ++count;
             }
+        } else {
+            v.discard();
         }
     }
+    if (count) _dirty = true;
     res.status = {DbStatusCode::Ok, ""};
     recordStatus(res.status);
     res.value = count;

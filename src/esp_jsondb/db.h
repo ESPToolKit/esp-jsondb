@@ -32,7 +32,7 @@ class ESPJsonDB {
 	// Drop all collections and documents (clears base directory)
 	DbStatus dropAll();
 
-	// Returns union of loaded + on-disk collection names
+	// Returns collection names tracked in memory (preloaded + runtime-created)
 	std::vector<std::string> getAllCollectionName();
 
 	// Change sync configuration; restarts autosync task if needed
@@ -195,6 +195,7 @@ class ESPJsonDB {
 	// sync task
 	static void syncTaskThunk(void *arg);
 	void syncTaskLoop();
+	DbStatus runSyncPass();
 	void startSyncTaskUnlocked();
 	void stopSyncTaskUnlocked();
 
@@ -245,6 +246,10 @@ class ESPJsonDB {
 	TaskHandle_t _fileUploadTask = nullptr;
 	std::atomic<bool> _syncStopRequested{false};
 	std::atomic<bool> _syncTaskExited{true};
+	std::atomic<bool> _syncKickRequested{false};
+	std::atomic<uint32_t> _syncRequestSeq{0};
+	std::atomic<uint32_t> _syncCompletedSeq{0};
+	bool _dropAllRequested = false;
 	std::atomic<bool> _fileUploadStopRequested{false};
 	std::atomic<bool> _fileUploadTaskExited{true};
 	uint32_t _nextUploadId = 1;

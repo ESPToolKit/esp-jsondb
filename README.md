@@ -75,7 +75,7 @@ if (createRes.status.ok()) {
 See the sketches under `examples/` for end-to-end flows:
 - `QuickStart` – database initialisation and simple CRUD.
 - `Collections` – create/drop collections at runtime.
-- `CacheDisabled` – run without the RAM cache.
+- `CacheDisabled` – migration note for the removed cache-disabled mode.
 - `BulkOperations` – batch inserts, updates, and queries.
 - `SchemaValidation` – enforce required fields and custom validators.
 - `UniqueFields` – per-collection uniqueness guarantees.
@@ -107,7 +107,7 @@ db.writeFileStream(
 ```
 
 ## Gotchas
-- Each collection lives in RAM when the cache is enabled; disable the cache or add PSRAM when handling large documents.
+- Each collection lives in RAM; add PSRAM when handling large documents.
 - All payloads are JSON; converting to structs is optional but deserialisation still costs memory—size your `JsonDocument` objects carefully.
 - Sync callbacks run on the background task; keep them short to avoid blocking periodic flushes.
 - Unique constraints and validators run inside write operations. Long-running validators will increase latency for the calling task.
@@ -118,7 +118,7 @@ db.writeFileStream(
 - `usePSRAMBuffers` affects ESPJsonDB-owned byte buffers and decoded `DocView` `JsonDocument` pools on ArduinoJson v7. Public return containers like `readFile()` still use the existing API types.
 
 ## API Reference
-- `DbStatus init(const char* baseDir = "/db", const ESPJsonDBConfig& cfg = {})` – mount LittleFS (`cfg.initFileSystem`) and create the autosync task (optional). Diagnostics are lightweight and served from in-memory counters.
+- `DbStatus init(const char* baseDir = "/db", const ESPJsonDBConfig& cfg = {})` – mount LittleFS (`cfg.initFileSystem`), preload collections into RAM cache, and start the sync worker task.
 - `void deinit()` – stop background tasks, cancel pending async uploads, and release runtime state. Safe before `init()` and safe to call repeatedly.
 - `bool isInitialized() const` – reports whether this instance is initialized and ready for DB operations.
 - `void onEvent(std::function<void(DBEventType)>)` / `void onError(std::function<void(const DbStatus&)>)` – receive sync, CRUD, and validation events.
@@ -146,7 +146,7 @@ db.writeFileStream(
 
 `ESPJsonDBConfig` knobs:
 - `intervalMs`, `stackSize`, `priority`, `coreId` – background autosync cadence & FreeRTOS tuning.
-- `autosync`, `coldSync`, `cacheEnabled` – enable/disable timers and caches.
+- `autosync`, `coldSync`, `cacheEnabled` – sync behavior. `cacheEnabled=false` is rejected so writes stay on the sync task; init always preloads collections into cache.
 - `fs`, `initFileSystem`, `formatOnFail`, `partitionLabel`, `maxOpenFiles` – file system integration; pass your own `fs::FS` if you mount LittleFS elsewhere.
 - `usePSRAMBuffers` – prefer PSRAM for internal msgpack + file stream byte buffers and decoded `DocView` `JsonDocument` pools (ArduinoJson v7), with safe fallback to default heap. Task stacks are always created from internal RAM.
 
