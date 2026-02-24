@@ -29,7 +29,7 @@ struct ESPJsonDBConfig {
 	BaseType_t coreId = tskNO_AFFINITY;
 	bool autosync = true;
 	bool coldSync = false;
-	bool cacheEnabled = true;
+	bool cacheEnabled = true; // must remain true; false is rejected at runtime
 	fs::FS *fs = nullptr; // optional external filesystem handle
 	bool initFileSystem = true;
 	bool formatOnFail = true;

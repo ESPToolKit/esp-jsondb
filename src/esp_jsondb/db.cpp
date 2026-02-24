@@ -2,9 +2,11 @@
 #include "utils/fs_utils.h"
 #include "utils/jsondb_allocator.h"
 #include <StreamUtils.h>
+#include <algorithm>
 
 namespace {
 constexpr uint32_t kTaskStopTimeoutMs = 200;
+static void removeTree(fs::FS &fsImpl, const std::string &path);
 } // namespace
 
 FrMutex g_fsMutex; // definition of global FS mutex
@@ -111,8 +113,12 @@ void ESPJsonDB::deinit() {
 
 	_syncStopRequested.store(false, std::memory_order_release);
 	_syncTaskExited.store(true, std::memory_order_release);
+	_syncKickRequested.store(false, std::memory_order_release);
+	_syncRequestSeq.store(0, std::memory_order_release);
+	_syncCompletedSeq.store(0, std::memory_order_release);
 	_fileUploadStopRequested.store(false, std::memory_order_release);
 	_fileUploadTaskExited.store(true, std::memory_order_release);
+	_dropAllRequested = false;
 	_baseDir.clear();
 	_cfg = ESPJsonDBConfig{};
 	_fs = _cfg.fs ? _cfg.fs : &LittleFS;
@@ -123,6 +129,9 @@ void ESPJsonDB::deinit() {
 DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 	if (isInitialized()) {
 		deinit();
+	}
+	if (!cfg.cacheEnabled) {
+		return setLastError({DbStatusCode::InvalidArgument, "cacheEnabled=false is no longer supported"});
 	}
 	_initialized.store(false, std::memory_order_release);
 	_baseDir = baseDir ? baseDir : std::string("/db");
@@ -137,7 +146,11 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 		_baseDir.pop_back();
 	}
 	_cfg = cfg;
+	_cfg.cacheEnabled = true;
 	_syncStopRequested.store(false, std::memory_order_release);
+	_syncKickRequested.store(false, std::memory_order_release);
+	_syncRequestSeq.store(0, std::memory_order_release);
+	_syncCompletedSeq.store(0, std::memory_order_release);
 	_fileUploadStopRequested.store(false, std::memory_order_release);
 	auto st = ensureFsReady();
 	if (!st.ok()) return st;
@@ -148,6 +161,7 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 		_uploadQueue.clear();
 		_uploadJobs.clear();
 		_nextUploadId = 1;
+		_dropAllRequested = false;
 		_diagCache.docsPerCollection.clear();
 		_diagCache.collections = 0;
 		_diagCache.lastRefreshMs = 0;
@@ -155,19 +169,19 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 	}
 	_initialized.store(true, std::memory_order_release);
 
-	if (_cfg.coldSync) {
-		auto preloadStatus = preloadCollectionsFromFs();
-		if (!preloadStatus.ok()) {
-			deinit();
-			return setLastError(preloadStatus);
-		}
+	{
+		FrLock lk(_mu);
+		startSyncTaskUnlocked();
+	}
+	if (_syncTask == nullptr) {
+		deinit();
+		return setLastError({DbStatusCode::Busy, "sync task start failed"});
 	}
 
-	if (_cfg.autosync) {
-		{
-			FrLock lk(_mu);
-			startSyncTaskUnlocked();
-		}
+	auto preloadStatus = preloadCollectionsFromFs();
+	if (!preloadStatus.ok()) {
+		deinit();
+		return setLastError(preloadStatus);
 	}
 	return setLastError({DbStatusCode::Ok, ""});
 }
@@ -270,19 +284,14 @@ DbResult<Collection *> ESPJsonDB::collection(const std::string &name) {
 		auto sit = _schemas.find(name);
 		if (sit != _schemas.end()) sc = sit->second;
 	}
-	auto col = std::make_unique<Collection>(*this, name, sc, _baseDir, _cfg.cacheEnabled, _cfg.usePSRAMBuffers, *_fs);
-	auto st = col->loadFromFs(_baseDir);
-	if (!st.ok()) {
-		res.status = setLastError(st);
-		return res;
-	}
-	Collection *ptr = col.get();
+	auto col = std::make_unique<Collection>(*this, name, sc, _baseDir, true, _cfg.usePSRAMBuffers, *_fs);
+	Collection *ptr = nullptr;
 	bool created = false;
 	{
 		FrLock lk(_mu);
 		auto [it, inserted] = _cols.emplace(name, std::move(col));
 		created = inserted;
-		(void)it;
+		ptr = it->second.get();
 	}
 	if (created) emitEvent(DBEventType::CollectionCreated);
 	res.status = setLastError({DbStatusCode::Ok, ""});
@@ -431,11 +440,43 @@ DbStatus ESPJsonDB::syncNow() {
 	if (!ready.ok()) {
 		return setLastError(ready);
 	}
+	if (_syncTask != nullptr && xTaskGetCurrentTaskHandle() == _syncTask) {
+		return runSyncPass();
+	}
+	if (_syncTask == nullptr) {
+		FrLock lk(_mu);
+		startSyncTaskUnlocked();
+	}
+	if (_syncTask == nullptr) {
+		return setLastError({DbStatusCode::Busy, "sync task not running"});
+	}
+
+	const uint32_t targetSeq = _syncRequestSeq.fetch_add(1, std::memory_order_acq_rel) + 1;
+	_syncKickRequested.store(true, std::memory_order_release);
+
+	const uint32_t startMs = millis();
+	const uint32_t timeoutMs = std::max<uint32_t>(_cfg.intervalMs + 1000U, 60000U);
+	while (_syncCompletedSeq.load(std::memory_order_acquire) < targetSeq) {
+		if (_syncStopRequested.load(std::memory_order_acquire)) {
+			return setLastError({DbStatusCode::Busy, "sync task stopping"});
+		}
+		if ((millis() - startMs) > timeoutMs) {
+			return setLastError({DbStatusCode::Busy, "sync task timeout"});
+		}
+		vTaskDelay(pdMS_TO_TICKS(1));
+	}
+	return _lastError;
+}
+
+DbStatus ESPJsonDB::runSyncPass() {
 	// Snapshot work under lock
 	std::vector<std::string> colsToDrop;
 	std::vector<Collection *> cols;
+	bool dropAll = false;
 	{
 		FrLock lk(_mu);
+		dropAll = _dropAllRequested;
+		_dropAllRequested = false;
 		colsToDrop.swap(_colsToDelete);
 		cols.reserve(_cols.size());
 		for (auto &kv : _cols)
@@ -443,6 +484,16 @@ DbStatus ESPJsonDB::syncNow() {
 	}
 	bool anyChanges = false;
 	DbStatus finalStatus{DbStatusCode::Ok, ""};
+	if (dropAll) {
+		if (_fs) {
+			removeTree(*_fs, _baseDir);
+		}
+		auto st = ensureFsReady();
+		if (!st.ok()) {
+			return setLastError(st);
+		}
+		anyChanges = true;
+	}
 	// Handle dropped collections: remove their directories
 	for (const auto &n : colsToDrop) {
 		auto st = removeCollectionDir(n);
@@ -477,12 +528,27 @@ void ESPJsonDB::syncTaskThunk(void *arg) {
 }
 
 void ESPJsonDB::syncTaskLoop() {
+	uint32_t lastSyncMs = millis();
 	while (!_syncStopRequested.load(std::memory_order_acquire)) {
-		vTaskDelay(pdMS_TO_TICKS(_cfg.intervalMs));
-		if (_syncStopRequested.load(std::memory_order_acquire)) {
-			break;
+		bool shouldRun = false;
+		if (_syncKickRequested.exchange(false, std::memory_order_acq_rel)) {
+			shouldRun = true;
 		}
-		(void)syncNow();
+		const uint32_t now = millis();
+		if (!shouldRun && _cfg.autosync && (now - lastSyncMs) >= _cfg.intervalMs) {
+			shouldRun = true;
+		}
+		if (!shouldRun) {
+			vTaskDelay(pdMS_TO_TICKS(10));
+			continue;
+		}
+		const uint32_t targetSeq = _syncRequestSeq.load(std::memory_order_acquire);
+		lastSyncMs = now;
+		(void)runSyncPass();
+		uint32_t completed = _syncCompletedSeq.load(std::memory_order_acquire);
+		while (completed < targetSeq &&
+			   !_syncCompletedSeq.compare_exchange_weak(completed, targetSeq, std::memory_order_acq_rel)) {
+		}
 	}
 	_syncTaskExited.store(true, std::memory_order_release);
 	vTaskDelete(nullptr);
@@ -492,6 +558,7 @@ void ESPJsonDB::startSyncTaskUnlocked() {
 	if (_syncTask != nullptr) return;
 	_syncStopRequested.store(false, std::memory_order_release);
 	_syncTaskExited.store(false, std::memory_order_release);
+	_syncKickRequested.store(false, std::memory_order_release);
 	TaskHandle_t handle = nullptr;
 	if (createTask(syncTaskThunk, "db.sync", handle)) {
 		_syncTask = handle;
@@ -502,6 +569,8 @@ void ESPJsonDB::startSyncTaskUnlocked() {
 
 void ESPJsonDB::stopSyncTaskUnlocked() {
 	stopTask(_syncTask, _syncStopRequested, _syncTaskExited);
+	_syncKickRequested.store(false, std::memory_order_release);
+	_syncCompletedSeq.store(_syncRequestSeq.load(std::memory_order_acquire), std::memory_order_release);
 }
 
 namespace {
@@ -620,14 +689,58 @@ void ESPJsonDB::noteDocumentDeleted(const std::string &collectionName, uint32_t 
 }
 
 DbStatus ESPJsonDB::preloadCollectionsFromFs() {
-	auto names = getAllCollectionName();
+	auto ready = ensureReady();
+	if (!ready.ok()) return setLastError(ready);
+	if (!_fs) {
+		return setLastError({DbStatusCode::IoError, "filesystem not ready"});
+	}
+
+	std::vector<std::string> names;
+	{
+		FrLock fs(g_fsMutex);
+		if (!_fs->exists(_baseDir.c_str())) {
+			return setLastError({DbStatusCode::Ok, ""});
+		}
+		File base = _fs->open(_baseDir.c_str());
+		if (!base || !base.isDirectory()) {
+			if (base) base.close();
+			return setLastError({DbStatusCode::IoError, "open base dir failed"});
+		}
+		for (File f = base.openNextFile(); f; f = base.openNextFile()) {
+			if (!f.isDirectory()) {
+				f.close();
+				continue;
+			}
+			String raw = f.name();
+			f.close();
+			std::string name = raw.c_str();
+			auto slash = name.find_last_of('/');
+			if (slash != std::string::npos) name = name.substr(slash + 1);
+			if (name.empty() || isReservedName(name)) continue;
+			names.push_back(name);
+		}
+		base.close();
+	}
+	std::sort(names.begin(), names.end());
+	names.erase(std::unique(names.begin(), names.end()), names.end());
+
 	for (const auto &name : names) {
-		if (name.empty()) continue;
-		auto cr = collection(name);
-		if (!cr.status.ok()) {
-			return cr.status;
+		Schema sc{};
+		{
+			FrLock lk(_mu);
+			if (_cols.find(name) != _cols.end()) continue;
+			auto sit = _schemas.find(name);
+			if (sit != _schemas.end()) sc = sit->second;
+		}
+		auto col = std::make_unique<Collection>(*this, name, sc, _baseDir, true, _cfg.usePSRAMBuffers, *_fs);
+		auto st = col->loadFromFs(_baseDir);
+		if (!st.ok()) return setLastError(st);
+		{
+			FrLock lk(_mu);
+			_cols.emplace(name, std::move(col));
 		}
 	}
+
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
@@ -703,13 +816,9 @@ DbStatus ESPJsonDB::dropAll() {
 	if (!ready.ok()) {
 		return setLastError(ready);
 	}
-	bool shouldRestart = false;
 	{
 		FrLock lk(_mu);
-		// Stop autosync task to avoid races while removing files
-		shouldRestart = _cfg.autosync;
 		stopFileUploadTaskUnlocked(true);
-		stopSyncTaskUnlocked();
 
 		// Clear in-memory state
 		for (auto &kv : _cols) {
@@ -719,29 +828,15 @@ DbStatus ESPJsonDB::dropAll() {
 		_colsToDelete.clear();
 		_uploadQueue.clear();
 		_uploadJobs.clear();
+		_nextUploadId = 1;
 		_diagCache.docsPerCollection.clear();
 		_diagCache.collections = 0;
 		_diagCache.lastRefreshMs = millis();
 		_diagCachePrimed = true;
+		_dropAllRequested = true;
 	}
-
-	// Remove base directory tree and recreate base dir
-	{
-		std::string base = _baseDir;
-		if (_fs) removeTree(*_fs, base);
-	}
-	auto st = ensureFsReady();
-	if (!st.ok()) return st;
-
-	// Restart autosync if it was enabled
-	if (shouldRestart) {
-		FrLock lk(_mu);
-		if (_cfg.autosync) startSyncTaskUnlocked();
-	}
-
-	// Emit a single Sync event to inform listeners state changed
-	emitEvent(DBEventType::Sync);
-	return setLastError({DbStatusCode::Ok, ""});
+	_syncKickRequested.store(true, std::memory_order_release);
+	return syncNow();
 }
 
 std::vector<std::string> ESPJsonDB::getAllCollectionName() {
@@ -759,18 +854,9 @@ std::vector<std::string> ESPJsonDB::getAllCollectionName() {
 			if (isReservedName(kv.first)) continue;
 			seen[kv.first] = true;
 		}
-	}
-	// Scan filesystem
-	std::vector<std::pair<std::string, bool>> entries;
-	if (_fs) {
-		listDirEntries(*_fs, _baseDir, entries);
-		for (auto &e : entries) {
-			if (!e.second) continue; // only directories
-			const std::string &full = e.first;
-			auto p = full.find_last_of('/');
-			std::string name = (p == std::string::npos) ? full : full.substr(p + 1);
-			if (isReservedName(name)) continue;
-			seen[name] = true;
+		for (auto &kv : _diagCache.docsPerCollection) {
+			if (isReservedName(kv.first)) continue;
+			seen[kv.first] = true;
 		}
 	}
 	names.reserve(seen.size());
@@ -784,18 +870,20 @@ DbStatus ESPJsonDB::changeConfig(const ESPJsonDBConfig &cfg) {
 	if (!ready.ok()) {
 		return setLastError(ready);
 	}
+	if (!cfg.cacheEnabled) {
+		return setLastError({DbStatusCode::InvalidArgument, "cacheEnabled=false is no longer supported"});
+	}
 	bool doColdSync = cfg.coldSync;
-	bool shouldStart = false;
 	// Stop existing task if running and apply new config
 	{
 		FrLock lk(_mu);
 		stopFileUploadTaskUnlocked(true);
 		stopSyncTaskUnlocked();
 		_cfg = cfg;
+		_cfg.cacheEnabled = true;
 		for (auto &kv : _cols) {
 			if (kv.second) kv.second->setCacheEnabled(_cfg.cacheEnabled);
 		}
-			shouldStart = _cfg.autosync;
 	}
 	auto fsStatus = ensureFsReady();
 	if (!fsStatus.ok()) return fsStatus;
@@ -805,9 +893,12 @@ DbStatus ESPJsonDB::changeConfig(const ESPJsonDBConfig &cfg) {
 			return preloadStatus;
 		}
 	}
-	if (shouldStart) {
+	{
 		FrLock lk(_mu);
 		startSyncTaskUnlocked();
+	}
+	if (_syncTask == nullptr) {
+		return setLastError({DbStatusCode::Busy, "sync task start failed"});
 	}
 	return setLastError({DbStatusCode::Ok, ""});
 }
