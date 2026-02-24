@@ -54,6 +54,7 @@ void DbTester::run() {
 	schemaSuccessWithTypesDocCreate();
 	schemaFailDocUpdate();
 	printDBDiag();
+	teardownLifecycle();
 }
 
 void DbTester::dbEventHandler(DBEventType evt) {
@@ -69,4 +70,37 @@ void DbTester::printDBDiag() {
 	ESP_LOGI(DB_TESTER_TAG, "DB Diagnostics");
 	serializeJsonPretty(diagDoc, Serial);
 	ESP_LOGI(DB_TESTER_TAG, "");
+}
+
+void DbTester::teardownLifecycle() {
+	db.deinit();
+	if (db.isInitialized()) {
+		ESP_LOGE(DB_TESTER_TAG, "deinit() failed to clear initialized state");
+		return;
+	}
+
+	db.deinit();
+	if (db.isInitialized()) {
+		ESP_LOGE(DB_TESTER_TAG, "deinit() is not idempotent");
+		return;
+	}
+
+	ESPJsonDBConfig cfg;
+	cfg.autosync = false;
+	auto initStatus = db.init("/test_db", cfg);
+	if (!initStatus.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "re-init after deinit failed: %s", initStatus.message);
+		return;
+	}
+	if (!db.isInitialized()) {
+		ESP_LOGE(DB_TESTER_TAG, "isInitialized() was false after successful re-init");
+		return;
+	}
+
+	db.deinit();
+	if (db.isInitialized()) {
+		ESP_LOGE(DB_TESTER_TAG, "final deinit() failed after re-init");
+		return;
+	}
+	ESP_LOGI(DB_TESTER_TAG, "Lifecycle teardown checks passed");
 }

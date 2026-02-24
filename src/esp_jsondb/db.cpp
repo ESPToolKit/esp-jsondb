@@ -29,7 +29,7 @@ DbStatus ESPJsonDB::ensureFsReady() {
 }
 
 DbStatus ESPJsonDB::ensureReady() const {
-	if (!_fs || _baseDir.empty()) {
+	if (!isInitialized() || !_fs || _baseDir.empty()) {
 		return {DbStatusCode::InvalidArgument, "database not initialized"};
 	}
 	return {DbStatusCode::Ok, ""};
@@ -78,14 +78,53 @@ std::string ESPJsonDB::fileRootDir() const {
 }
 
 ESPJsonDB::~ESPJsonDB() {
+	deinit();
+}
+
+void ESPJsonDB::deinit() {
+	if (!isInitialized() && _syncTask == nullptr && _fileUploadTask == nullptr) {
+		return;
+	}
+	_initialized.store(false, std::memory_order_release);
+
 	{
 		FrLock lk(_mu);
 		stopFileUploadTaskUnlocked(true);
+		stopSyncTaskUnlocked();
+
+		for (auto &kv : _cols) {
+			if (kv.second) kv.second->markAllRemoved();
+		}
+		_cols.clear();
+		_schemas.clear();
+		_colsToDelete.clear();
+		_eventCbs.clear();
+		_errorCbs.clear();
+		_uploadQueue.clear();
+		_uploadJobs.clear();
+		_nextUploadId = 1;
+		_diagCache.docsPerCollection.clear();
+		_diagCache.collections = 0;
+		_diagCache.lastRefreshMs = 0;
+		_diagCachePrimed = false;
 	}
-	stopSyncTaskUnlocked();
+
+	_syncStopRequested.store(false, std::memory_order_release);
+	_syncTaskExited.store(true, std::memory_order_release);
+	_fileUploadStopRequested.store(false, std::memory_order_release);
+	_fileUploadTaskExited.store(true, std::memory_order_release);
+	_baseDir.clear();
+	_cfg = ESPJsonDBConfig{};
+	_fs = _cfg.fs ? _cfg.fs : &LittleFS;
+	_lastError = {DbStatusCode::Ok, ""};
+	_initialized.store(false, std::memory_order_release);
 }
 
 DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
+	if (isInitialized()) {
+		deinit();
+	}
+	_initialized.store(false, std::memory_order_release);
 	_baseDir = baseDir ? baseDir : std::string("/db");
 	// Normalize baseDir: ensure leading '/', drop trailing '/'
 	if (_baseDir.empty()) {
@@ -114,10 +153,14 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 		_diagCache.lastRefreshMs = 0;
 		_diagCachePrimed = true;
 	}
+	_initialized.store(true, std::memory_order_release);
 
 	if (_cfg.coldSync) {
 		auto preloadStatus = preloadCollectionsFromFs();
-		if (!preloadStatus.ok()) return preloadStatus;
+		if (!preloadStatus.ok()) {
+			deinit();
+			return setLastError(preloadStatus);
+		}
 	}
 
 	if (_cfg.autosync) {
@@ -164,6 +207,10 @@ void ESPJsonDB::onSync(const std::function<void()> &cb) {
 }
 
 DbStatus ESPJsonDB::dropCollection(const std::string &name) {
+	auto ready = ensureReady();
+	if (!ready.ok()) {
+		return setLastError(ready);
+	}
 	if (isReservedName(name)) {
 		return setLastError({DbStatusCode::InvalidArgument, "reserved collection name"});
 	}
@@ -199,6 +246,11 @@ DbStatus ESPJsonDB::dropCollection(const std::string &name) {
 
 DbResult<Collection *> ESPJsonDB::collection(const std::string &name) {
 	DbResult<Collection *> res{};
+	auto ready = ensureReady();
+	if (!ready.ok()) {
+		res.status = setLastError(ready);
+		return res;
+	}
 	if (isReservedName(name)) {
 		res.status = setLastError({DbStatusCode::InvalidArgument, "reserved collection name"});
 		return res;
@@ -375,6 +427,10 @@ DbResult<size_t> ESPJsonDB::updateMany(const std::string &collectionName,
 }
 
 DbStatus ESPJsonDB::syncNow() {
+	auto ready = ensureReady();
+	if (!ready.ok()) {
+		return setLastError(ready);
+	}
 	// Snapshot work under lock
 	std::vector<std::string> colsToDrop;
 	std::vector<Collection *> cols;
@@ -643,6 +699,10 @@ JsonDocument ESPJsonDB::getDiag() {
 }
 
 DbStatus ESPJsonDB::dropAll() {
+	auto ready = ensureReady();
+	if (!ready.ok()) {
+		return setLastError(ready);
+	}
 	bool shouldRestart = false;
 	{
 		FrLock lk(_mu);
@@ -685,6 +745,11 @@ DbStatus ESPJsonDB::dropAll() {
 }
 
 std::vector<std::string> ESPJsonDB::getAllCollectionName() {
+	auto ready = ensureReady();
+	if (!ready.ok()) {
+		setLastError(ready);
+		return {};
+	}
 	std::vector<std::string> names;
 	// Use a set to avoid duplicates
 	std::map<std::string, bool> seen;
@@ -715,6 +780,10 @@ std::vector<std::string> ESPJsonDB::getAllCollectionName() {
 }
 
 DbStatus ESPJsonDB::changeConfig(const ESPJsonDBConfig &cfg) {
+	auto ready = ensureReady();
+	if (!ready.ok()) {
+		return setLastError(ready);
+	}
 	bool doColdSync = cfg.coldSync;
 	bool shouldStart = false;
 	// Stop existing task if running and apply new config

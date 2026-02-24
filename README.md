@@ -45,6 +45,10 @@ void setup() {
         Serial.printf("Error: %s\n", st.message);
     });
 }
+
+void loop() {
+    // Call db.deinit() before shutting down the feature/task that owns the DB.
+}
 ```
 
 Working with documents is intentionally `JsonDocument`-centric:
@@ -115,6 +119,8 @@ db.writeFileStream(
 
 ## API Reference
 - `DbStatus init(const char* baseDir = "/db", const ESPJsonDBConfig& cfg = {})` – mount LittleFS (`cfg.initFileSystem`) and create the autosync task (optional). Diagnostics are lightweight and served from in-memory counters.
+- `void deinit()` – stop background tasks, cancel pending async uploads, and release runtime state. Safe before `init()` and safe to call repeatedly.
+- `bool isInitialized() const` – reports whether this instance is initialized and ready for DB operations.
 - `void onEvent(std::function<void(DBEventType)>)` / `void onError(std::function<void(const DbStatus&)>)` – receive sync, CRUD, and validation events.
 - Collection management: `collection(name)`, `dropCollection(name)`, `dropAll()`, `getAllCollectionName()`.
 - Document helpers:

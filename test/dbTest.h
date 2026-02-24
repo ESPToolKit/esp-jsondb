@@ -42,6 +42,7 @@ class DbTester {
         void schemaFailDocUpdate();
         // Utils
         void printDBDiag();
+        void teardownLifecycle();
 
 };
 
