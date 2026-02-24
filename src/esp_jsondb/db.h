@@ -23,6 +23,8 @@ class ESPJsonDB {
   public:
 	~ESPJsonDB();
 	DbStatus init(const char *baseDir = "/db", const ESPJsonDBConfig &cfg = {});
+	void deinit();
+	bool isInitialized() const { return _initialized.load(std::memory_order_acquire); }
 	DbStatus registerSchema(const std::string &name, const Schema &s);
 	DbStatus unRegisterSchema(const std::string &name);
 	DbStatus dropCollection(const std::string &name);
@@ -188,6 +190,7 @@ class ESPJsonDB {
 
 	DiagCache _diagCache; // cached diagnostics; read without touching FS
 	bool _diagCachePrimed = false; // true once runtime counters are initialized
+	std::atomic<bool> _initialized{false};
 
 	// sync task
 	static void syncTaskThunk(void *arg);

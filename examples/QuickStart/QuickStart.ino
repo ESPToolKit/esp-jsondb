@@ -33,4 +33,5 @@ void setup() {
 }
 
 void loop() {
+    // Call db.deinit() before shutting down the DB-owning feature.
 }
