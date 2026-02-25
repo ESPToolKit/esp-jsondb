@@ -23,6 +23,7 @@ class DbTester {
         void refPopulateTest();
         void fileStorageTest();
         void asyncFileUploadTest();
+        void asyncFileUploadRetentionBoundTest();
         // Collection tests
         void simpleCollectionCreate();
         void simpleCollectionRemove();

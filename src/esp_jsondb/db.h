@@ -226,6 +226,7 @@ class ESPJsonDB {
 		DbStatus finalStatus{DbStatusCode::Ok, ""};
 		size_t bytesWritten = 0;
 		bool cancelRequested = false;
+		bool terminalTracked = false;
 	};
 	static void fileUploadTaskThunk(void *arg);
 	void fileUploadTaskLoop();
@@ -233,6 +234,7 @@ class ESPJsonDB {
 	void stopFileUploadTaskUnlocked(bool cancelPending);
 	DbStatus runFileUploadJob(const std::shared_ptr<FileUploadJob> &job, size_t &bytesWritten);
 	bool isUploadTerminal(DbFileUploadState state) const;
+	void trackTerminalUploadLocked(const std::shared_ptr<FileUploadJob> &job);
 	bool createTask(TaskFunction_t entry, const char *name, TaskHandle_t &outHandle);
 	void stopTask(TaskHandle_t &taskHandle, std::atomic<bool> &stopRequested, std::atomic<bool> &taskExited);
 	static uint32_t stackBytesToWords(uint32_t stackBytes);
@@ -255,6 +257,8 @@ class ESPJsonDB {
 	uint32_t _nextUploadId = 1;
 	std::vector<uint32_t> _uploadQueue;
 	std::map<uint32_t, std::shared_ptr<FileUploadJob>> _uploadJobs;
+	std::vector<uint32_t> _terminalUploadOrder;
+	static constexpr size_t kMaxRetainedTerminalUploads = 64;
 };
 
 template <typename Pred>

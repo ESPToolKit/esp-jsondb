@@ -104,6 +104,7 @@ void ESPJsonDB::deinit() {
 		_errorCbs.clear();
 		_uploadQueue.clear();
 		_uploadJobs.clear();
+		_terminalUploadOrder.clear();
 		_nextUploadId = 1;
 		_diagCache.docsPerCollection.clear();
 		_diagCache.collections = 0;
@@ -160,6 +161,7 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 		stopFileUploadTaskUnlocked(true);
 		_uploadQueue.clear();
 		_uploadJobs.clear();
+		_terminalUploadOrder.clear();
 		_nextUploadId = 1;
 		_dropAllRequested = false;
 		_diagCache.docsPerCollection.clear();
@@ -828,6 +830,7 @@ DbStatus ESPJsonDB::dropAll() {
 		_colsToDelete.clear();
 		_uploadQueue.clear();
 		_uploadJobs.clear();
+		_terminalUploadOrder.clear();
 		_nextUploadId = 1;
 		_diagCache.docsPerCollection.clear();
 		_diagCache.collections = 0;
@@ -878,6 +881,10 @@ DbStatus ESPJsonDB::changeConfig(const ESPJsonDBConfig &cfg) {
 	{
 		FrLock lk(_mu);
 		stopFileUploadTaskUnlocked(true);
+		_uploadQueue.clear();
+		_uploadJobs.clear();
+		_terminalUploadOrder.clear();
+		_nextUploadId = 1;
 		stopSyncTaskUnlocked();
 		_cfg = cfg;
 		_cfg.cacheEnabled = true;

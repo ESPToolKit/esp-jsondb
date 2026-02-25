@@ -23,6 +23,24 @@ bool ESPJsonDB::isUploadTerminal(DbFileUploadState state) const {
 		   state == DbFileUploadState::Cancelled;
 }
 
+void ESPJsonDB::trackTerminalUploadLocked(const std::shared_ptr<FileUploadJob> &job) {
+	if (!job || !isUploadTerminal(job->state) || job->terminalTracked) return;
+
+	job->terminalTracked = true;
+	_terminalUploadOrder.push_back(job->id);
+
+	while (_terminalUploadOrder.size() > kMaxRetainedTerminalUploads) {
+		const uint32_t expiredId = _terminalUploadOrder.front();
+		_terminalUploadOrder.erase(_terminalUploadOrder.begin());
+
+		auto it = _uploadJobs.find(expiredId);
+		if (it == _uploadJobs.end()) continue;
+		if (!it->second || isUploadTerminal(it->second->state)) {
+			_uploadJobs.erase(it);
+		}
+	}
+}
+
 DbResult<uint32_t> ESPJsonDB::writeFileStreamAsync(const std::string &relativePath,
 														const DbFileUploadPullCb &pullCb,
 														const ESPJsonDBFileOptions &opts,
@@ -97,6 +115,7 @@ DbStatus ESPJsonDB::cancelFileUpload(uint32_t uploadId) {
 			_uploadQueue.erase(std::remove(_uploadQueue.begin(), _uploadQueue.end(), uploadId), _uploadQueue.end());
 			job->state = DbFileUploadState::Cancelled;
 			job->finalStatus = doneStatus;
+			trackTerminalUploadLocked(job);
 			doneCb = job->doneCb;
 			bytesWritten = job->bytesWritten;
 			triggerDone = true;
@@ -303,6 +322,7 @@ void ESPJsonDB::fileUploadTaskLoop() {
 				FrLock lk(_mu);
 				job->state = DbFileUploadState::Cancelled;
 				job->finalStatus = {DbStatusCode::Busy, "upload cancelled"};
+				trackTerminalUploadLocked(job);
 				doneCb = job->doneCb;
 			}
 			if (doneCb) {
@@ -335,6 +355,7 @@ void ESPJsonDB::fileUploadTaskLoop() {
 				}
 				j->state = finalState;
 				j->finalStatus = finalStatus;
+				trackTerminalUploadLocked(j);
 				doneCb = j->doneCb;
 			}
 		}

@@ -34,6 +34,7 @@ void DbTester::run() {
 	refPopulateTest();
 	fileStorageTest();
 	asyncFileUploadTest();
+	asyncFileUploadRetentionBoundTest();
 	printDBDiag();
 	// Collection tests
 	simpleCollectionCreate();

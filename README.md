@@ -113,6 +113,7 @@ db.writeFileStream(
 - Unique constraints and validators run inside write operations. Long-running validators will increase latency for the calling task.
 - `writeFileStream()` and `readFileStream()` hold the filesystem lock while processing the stream; use reasonable chunk sizes and avoid blocking stream sources/sinks.
 - `writeFileStreamAsync()` runs producer callbacks on a background task; callbacks must be short and thread-safe.
+- `getFileUploadState(uploadId)` retains terminal states for a bounded number of recent uploads; older upload IDs eventually return `NotFound`.
 - `/_files` is an internal reserved directory used for file storage and cannot be used as a collection name.
 - `getSnapshot()` and `restoreFromSnapshot()` currently cover document collections only; file storage under `/_files` is not included.
 - `usePSRAMBuffers` affects ESPJsonDB-owned byte buffers and decoded `DocView` `JsonDocument` pools on ArduinoJson v7. Public return containers like `readFile()` still use the existing API types.
@@ -136,7 +137,7 @@ db.writeFileStream(
   - `writeFileStream(path, pullCb, opts)` for synchronous callback-driven chunk production.
   - `writeFileFromPath(path, sourceFsPath, opts)` to copy a source file path into DB-managed file storage.
   - `writeFileStreamAsync(path, pullCb, opts, doneCb)` for non-blocking producer-driven uploads.
-  - `cancelFileUpload(uploadId)`, `getFileUploadState(uploadId)` for async job control.
+  - `cancelFileUpload(uploadId)`, `getFileUploadState(uploadId)` for async job control (terminal states are retained for a bounded recent window).
   - `writeFile(path, data, size)` / `readFile(path)` for direct byte buffers.
   - `writeTextFile(path, text)` / `readTextFile(path)` for UTF-8 or plain text payloads.
   - `fileExists(path)`, `fileSize(path)`, `removeFile(path)` for file lifecycle utilities.
