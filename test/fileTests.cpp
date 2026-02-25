@@ -237,3 +237,93 @@ void DbTester::asyncFileUploadTest() {
 	(void)db.removeFile("async/payload.bin");
 	ESP_LOGI(DB_TESTER_TAG, "Async file upload test passed");
 }
+
+void DbTester::asyncFileUploadRetentionBoundTest() {
+	const size_t uploadCount = 80;
+	std::vector<uint32_t> uploadIds;
+	uploadIds.reserve(uploadCount);
+
+	ESPJsonDBFileOptions opts;
+	opts.overwrite = true;
+	opts.chunkSize = 64;
+
+	for (size_t i = 0; i < uploadCount; ++i) {
+		struct UploadCtx {
+			const uint8_t *data = nullptr;
+			size_t size = 0;
+			size_t offset = 0;
+		} ctx;
+
+		std::vector<uint8_t> payload(32, static_cast<uint8_t>(i & 0xFF));
+		ctx.data = payload.data();
+		ctx.size = payload.size();
+		ctx.offset = 0;
+
+		volatile bool done = false;
+		volatile bool doneOk = false;
+		volatile size_t doneBytes = 0;
+
+		DbFileUploadPullCb pullCb = [&ctx](size_t requested, uint8_t *buffer, size_t &produced, bool &eof) -> DbStatus {
+			if (!buffer) return {DbStatusCode::InvalidArgument, "buffer is null"};
+			if (ctx.offset >= ctx.size) {
+				produced = 0;
+				eof = true;
+				return {DbStatusCode::Ok, ""};
+			}
+			size_t remaining = ctx.size - ctx.offset;
+			size_t take = remaining < requested ? remaining : requested;
+			memcpy(buffer, ctx.data + ctx.offset, take);
+			ctx.offset += take;
+			produced = take;
+			eof = (ctx.offset >= ctx.size);
+			return {DbStatusCode::Ok, ""};
+		};
+
+		DbFileUploadDoneCb doneCb = [&done, &doneOk, &doneBytes](uint32_t, const DbStatus &st, size_t bytesWritten) {
+			doneOk = st.ok();
+			doneBytes = bytesWritten;
+			done = true;
+		};
+
+		const std::string path = "async/retention_" + std::to_string(i) + ".bin";
+		auto asyncRes = db.writeFileStreamAsync(path, pullCb, opts, doneCb);
+		if (!asyncRes.status.ok()) {
+			ESP_LOGE(DB_TESTER_TAG, "Retention test upload start failed at %u: %s",
+					 static_cast<unsigned>(i),
+					 asyncRes.status.message);
+			return;
+		}
+		uploadIds.push_back(asyncRes.value);
+
+		const uint32_t started = millis();
+		while (!done && (millis() - started) < 5000) {
+			delay(5);
+		}
+		if (!done || !doneOk || doneBytes != payload.size()) {
+			ESP_LOGE(DB_TESTER_TAG, "Retention test upload completion mismatch at %u", static_cast<unsigned>(i));
+			return;
+		}
+
+		auto latestState = db.getFileUploadState(asyncRes.value);
+		if (!latestState.status.ok() || latestState.value != DbFileUploadState::Completed) {
+			ESP_LOGE(DB_TESTER_TAG, "Retention test latest upload state mismatch at %u", static_cast<unsigned>(i));
+			return;
+		}
+
+		(void)db.removeFile(path);
+	}
+
+	auto oldestState = db.getFileUploadState(uploadIds.front());
+	if (oldestState.status.code != DbStatusCode::NotFound) {
+		ESP_LOGE(DB_TESTER_TAG, "Retention test expected oldest upload state to expire");
+		return;
+	}
+
+	auto newestState = db.getFileUploadState(uploadIds.back());
+	if (!newestState.status.ok() || newestState.value != DbFileUploadState::Completed) {
+		ESP_LOGE(DB_TESTER_TAG, "Retention test expected newest upload state to be retained");
+		return;
+	}
+
+	ESP_LOGI(DB_TESTER_TAG, "Async upload retention bound test passed");
+}

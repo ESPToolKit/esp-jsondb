@@ -29,6 +29,7 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 - Routed decoded `DocView` `JsonDocument` pools through `ESPBufferManager` when building with ArduinoJson v7 allocator support, with automatic fallback to default allocator paths when unavailable.
 - `getDiag()` now reports `config.usePSRAMBuffers`.
 - `dropAll()`, `changeConfig()`, and `init()` now cancel pending/running async uploads before reconfiguring filesystem state.
+- Async upload state retention is now bounded: terminal upload states are kept only for a recent window of upload IDs.
 - Updated `examples/FileStreaming` and file storage tests to cover callback/path convenience write flows.
 
 ## [1.1.0] - 2026-02-12
