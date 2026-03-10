@@ -3,6 +3,14 @@
 #include "../utils/fs_utils.h"
 #include "../utils/time_utils.h"
 
+namespace {
+std::shared_ptr<DocumentRecord> makeSharedDocumentRecord(bool usePSRAMBuffers) {
+	return std::allocate_shared<DocumentRecord>(
+	    JsonDbAllocator<DocumentRecord>(usePSRAMBuffers), usePSRAMBuffers
+	);
+}
+} // namespace
+
 Collection::Collection(
     ESPJsonDB &db,
     const std::string &name,
@@ -12,8 +20,10 @@ Collection::Collection(
     bool usePSRAMBuffers,
     fs::FS &fs
 )
-    : _db(&db), _name(name), _schema(schema), _baseDir(std::move(baseDir)), _cacheEnabled(true),
-      _usePSRAMBuffers(usePSRAMBuffers), _fs(&fs) {
+    : _db(&db), _name(name), _schema(schema),
+      _docs(std::less<std::string>{}, DocumentMapAllocator(usePSRAMBuffers)),
+      _baseDir(std::move(baseDir)), _cacheEnabled(true), _usePSRAMBuffers(usePSRAMBuffers),
+      _fs(&fs) {
 	(void)cacheEnabled;
 }
 
@@ -147,7 +157,7 @@ DbResult<std::string> Collection::create(JsonObjectConst data) {
 			recordStatus(res.status);
 			return res;
 		}
-		rec = std::make_shared<DocumentRecord>(_usePSRAMBuffers);
+		rec = makeSharedDocumentRecord(_usePSRAMBuffers);
 		rec->meta.createdAt = nowUtcMs();
 		rec->meta.updatedAt = rec->meta.createdAt;
 		rec->meta.id = ObjectId().toHex();
@@ -320,7 +330,7 @@ DbStatus Collection::updateOne(
 
 	// If not found and create requested, create a new record and apply mutator
 	if (!updated && create) {
-		auto rec = std::make_shared<DocumentRecord>(_usePSRAMBuffers);
+		auto rec = makeSharedDocumentRecord(_usePSRAMBuffers);
 		rec->meta.createdAt = nowUtcMs();
 		rec->meta.updatedAt = rec->meta.createdAt;
 		rec->meta.id = ObjectId().toHex();
@@ -409,7 +419,7 @@ DbStatus Collection::updateOne(const JsonDocument &filter, const JsonDocument &p
 
 	if (!updated && create) {
 		// Create a new document merging filter and patch
-		auto rec = std::make_shared<DocumentRecord>(_usePSRAMBuffers);
+		auto rec = makeSharedDocumentRecord(_usePSRAMBuffers);
 		rec->meta.createdAt = nowUtcMs();
 		rec->meta.updatedAt = rec->meta.createdAt;
 		rec->meta.id = ObjectId().toHex();
@@ -551,7 +561,7 @@ Collection::readDocFromFile(const std::string &baseDir, const std::string &id) {
 		recordStatus(res.status);
 		return res;
 	}
-	auto rec = std::make_shared<DocumentRecord>(_usePSRAMBuffers);
+	auto rec = makeSharedDocumentRecord(_usePSRAMBuffers);
 	rec->meta.id = id;
 	rec->meta.createdAt = nowUtcMs();
 	rec->meta.updatedAt = rec->meta.createdAt;
@@ -656,7 +666,7 @@ DbStatus Collection::updateOneNoCache(
 		}
 	}
 	if (create) {
-		auto rec = std::make_shared<DocumentRecord>(_usePSRAMBuffers);
+		auto rec = makeSharedDocumentRecord(_usePSRAMBuffers);
 		rec->meta.createdAt = nowUtcMs();
 		rec->meta.updatedAt = rec->meta.createdAt;
 		rec->meta.id = ObjectId().toHex();
@@ -730,7 +740,7 @@ DbStatus Collection::updateOneJsonNoCache(
 		return recordStatus(st);
 	}
 	if (create) {
-		auto rec = std::make_shared<DocumentRecord>(_usePSRAMBuffers);
+		auto rec = makeSharedDocumentRecord(_usePSRAMBuffers);
 		rec->meta.createdAt = nowUtcMs();
 		rec->meta.updatedAt = rec->meta.createdAt;
 		rec->meta.id = ObjectId().toHex();

@@ -47,6 +47,7 @@ class DbTester {
 	void delayedCollectionSyncNowFallbackTest();
 	void delayedCollectionDropBeforeLoadTest();
 	void delayedCollectionConfigNormalizationTest();
+	void psramBufferWiringTest();
 	// Utils
 	void printDBDiag();
 	void teardownLifecycle();
