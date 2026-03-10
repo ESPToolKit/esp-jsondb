@@ -10,6 +10,13 @@
 #define ESP_JSONDB_HAS_BUFFER_MANAGER 0
 #endif
 
+#if defined(ARDUINO_ARCH_ESP32) && __has_include(<esp_heap_caps.h>)
+#include <esp_heap_caps.h>
+#define ESP_JSONDB_HAS_ESP32_HEAP_CAPS 1
+#else
+#define ESP_JSONDB_HAS_ESP32_HEAP_CAPS 0
+#endif
+
 #include <cstddef>
 #include <cstdlib>
 #include <limits>
@@ -22,7 +29,15 @@ inline void *allocate(std::size_t bytes, bool usePSRAMBuffers) noexcept {
 #if ESP_JSONDB_HAS_BUFFER_MANAGER
 	return ESPBufferManager::allocate(bytes, usePSRAMBuffers);
 #else
+#if ESP_JSONDB_HAS_ESP32_HEAP_CAPS
+	if (usePSRAMBuffers) {
+		if (void *psramMemory = heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM)) {
+			return psramMemory;
+		}
+	}
+#else
 	(void)usePSRAMBuffers;
+#endif
 	return std::malloc(bytes);
 #endif
 }
@@ -39,7 +54,15 @@ inline void *reallocate(void *ptr, std::size_t bytes, bool usePSRAMBuffers) noex
 #if ESP_JSONDB_HAS_BUFFER_MANAGER
 	return ESPBufferManager::reallocate(ptr, bytes, usePSRAMBuffers);
 #else
+#if ESP_JSONDB_HAS_ESP32_HEAP_CAPS
+	if (usePSRAMBuffers) {
+		if (void *psramMemory = heap_caps_realloc(ptr, bytes, MALLOC_CAP_SPIRAM)) {
+			return psramMemory;
+		}
+	}
+#else
 	(void)usePSRAMBuffers;
+#endif
 	return std::realloc(ptr, bytes);
 #endif
 }

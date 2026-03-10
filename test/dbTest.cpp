@@ -59,6 +59,7 @@ void DbTester::run() {
 	delayedCollectionSyncNowFallbackTest();
 	delayedCollectionDropBeforeLoadTest();
 	delayedCollectionConfigNormalizationTest();
+	psramBufferWiringTest();
 	printDBDiag();
 	teardownLifecycle();
 }

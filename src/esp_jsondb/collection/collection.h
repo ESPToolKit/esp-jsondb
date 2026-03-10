@@ -132,11 +132,20 @@ class Collection {
 	}
 
   private:
+	using DocumentRecordPtr = std::shared_ptr<DocumentRecord>;
+	using DocumentMapValue = std::pair<const std::string, DocumentRecordPtr>;
+	using DocumentMapAllocator = JsonDbAllocator<DocumentMapValue>;
+	using DocumentMap = std::map<
+	    std::string,
+	    DocumentRecordPtr,
+	    std::less<std::string>,
+	    DocumentMapAllocator>;
+
 	ESPJsonDB *_db = nullptr;
 	std::string _name;
 	Schema _schema;
 	// Use shared_ptr to keep records alive while views exist
-	std::map<std::string, std::shared_ptr<DocumentRecord>> _docs;
+	DocumentMap _docs;
 	bool _dirty = false;
 	std::vector<std::string> _deletedIds; // files to remove on next flush
 	FrMutex _mu;                          // guards _docs, _deletedIds
