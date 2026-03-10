@@ -42,6 +42,11 @@ class DbTester {
 	void schemaFailWithTypesDocCreate();
 	void schemaSuccessWithTypesDocCreate();
 	void schemaFailDocUpdate();
+	// Delayed preload tests
+	void delayedCollectionAccessBeforeAutosyncTickTest();
+	void delayedCollectionSyncNowFallbackTest();
+	void delayedCollectionDropBeforeLoadTest();
+	void delayedCollectionConfigNormalizationTest();
 	// Utils
 	void printDBDiag();
 	void teardownLifecycle();

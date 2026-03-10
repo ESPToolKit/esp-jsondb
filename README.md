@@ -11,6 +11,7 @@ A lightweight document database for ESP32 devices. ESPJsonDB borrows the ergonom
 - Simple, mongoose-like API for embedded projects (create/update/remove/find with predicates or JSON filters).
 - Optional in-memory cache with dirty-document tracking and change detection to avoid needless flash I/O.
 - Automatic LittleFS synchronisation on a background FreeRTOS task (`ESPJsonDBConfig` controls interval, stack, priority, and core affinity).
+- Configurable delayed boot preload for selected collections (`delayedCollectionSyncArray`) to reduce cold-start RAM sync work.
 - MessagePack compression + StreamUtils for efficient read/write pipelines.
 - Schema registry with required fields, defaults, type validation, and collection-level unique constraints.
 - Event + error callbacks so firmware can observe sync cycles or take action when validation fails.
@@ -119,7 +120,7 @@ db.writeFileStream(
 - `usePSRAMBuffers` affects ESPJsonDB-owned byte buffers and decoded `DocView` `JsonDocument` pools on ArduinoJson v7. Public return containers like `readFile()` still use the existing API types.
 
 ## API Reference
-- `DbStatus init(const char* baseDir = "/db", const ESPJsonDBConfig& cfg = {})` – mount LittleFS (`cfg.initFileSystem`), preload collections into RAM cache, and start the sync worker task.
+- `DbStatus init(const char* baseDir = "/db", const ESPJsonDBConfig& cfg = {})` – mount LittleFS (`cfg.initFileSystem`), preload collections into RAM cache (except names listed in `cfg.delayedCollectionSyncArray`), and start the sync worker task.
 - `void deinit()` – stop background tasks, cancel pending async uploads, and release runtime state. Safe before `init()` and safe to call repeatedly.
 - `bool isInitialized() const` – reports whether this instance is initialized and ready for DB operations.
 - `void onEvent(std::function<void(DBEventType)>)` / `void onError(std::function<void(const DbStatus&)>)` – receive sync, CRUD, and validation events.
@@ -147,7 +148,8 @@ db.writeFileStream(
 
 `ESPJsonDBConfig` knobs:
 - `intervalMs`, `stackSize`, `priority`, `coreId` – background autosync cadence & FreeRTOS tuning.
-- `autosync`, `coldSync`, `cacheEnabled` – sync behavior. `cacheEnabled=false` is rejected so writes stay on the sync task; init always preloads collections into cache.
+- `autosync`, `coldSync`, `cacheEnabled` – sync behavior. `cacheEnabled=false` is rejected so writes stay on the sync task; init preloads collections unless they are listed in `delayedCollectionSyncArray`.
+- `delayedCollectionSyncArray` – collection names to skip during `init()` preload. Delayed collections load on first periodic autosync tick; if `autosync=false`, first `syncNow()` triggers one-time delayed preload. Accessing `collection(name)` earlier loads that delayed collection immediately.
 - `fs`, `initFileSystem`, `formatOnFail`, `partitionLabel`, `maxOpenFiles` – file system integration; pass your own `fs::FS` if you mount LittleFS elsewhere.
 - `usePSRAMBuffers` – prefer PSRAM for internal msgpack + file stream byte buffers and decoded `DocView` `JsonDocument` pools (ArduinoJson v7), with safe fallback to default heap. Task stacks are always created from internal RAM.
 

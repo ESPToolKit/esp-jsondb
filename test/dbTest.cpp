@@ -54,6 +54,11 @@ void DbTester::run() {
 	schemaFailWithTypesDocCreate();
 	schemaSuccessWithTypesDocCreate();
 	schemaFailDocUpdate();
+	// Delayed preload tests
+	delayedCollectionAccessBeforeAutosyncTickTest();
+	delayedCollectionSyncNowFallbackTest();
+	delayedCollectionDropBeforeLoadTest();
+	delayedCollectionConfigNormalizationTest();
 	printDBDiag();
 	teardownLifecycle();
 }

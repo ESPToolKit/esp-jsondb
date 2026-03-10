@@ -85,6 +85,142 @@ std::string ESPJsonDB::fileRootDir() const {
 	return joinPath(_baseDir, "_files");
 }
 
+void ESPJsonDB::rebuildDelayedCollectionStateFromConfigLocked() {
+	_pendingDelayedCollections.clear();
+	for (const auto &name : _cfg.delayedCollectionSyncArray) {
+		if (name.empty() || isReservedName(name))
+			continue;
+		_pendingDelayedCollections[name] = true;
+	}
+	_delayedPreloadPhaseCompleted = _pendingDelayedCollections.empty();
+}
+
+bool ESPJsonDB::collectionDirExistsOnFs(const std::string &name) const {
+	if (!_fs || name.empty())
+		return false;
+	const std::string dirPath = joinPath(_baseDir, name);
+	FrLock fs(g_fsMutex);
+	if (!_fs->exists(dirPath.c_str()))
+		return false;
+	File dir = _fs->open(dirPath.c_str());
+	const bool exists = dir && dir.isDirectory();
+	if (dir)
+		dir.close();
+	return exists;
+}
+
+DbStatus ESPJsonDB::preloadCollectionFromFsByName(
+    const std::string &name, bool markDelayedHandled, bool *insertedOut
+) {
+	if (insertedOut)
+		*insertedOut = false;
+	if (name.empty() || isReservedName(name)) {
+		return {DbStatusCode::Ok, ""};
+	}
+
+	Schema sc{};
+	{
+		FrLock lk(_mu);
+		auto it = _cols.find(name);
+		if (it != _cols.end()) {
+			if (markDelayedHandled) {
+				_pendingDelayedCollections.erase(name);
+				if (_pendingDelayedCollections.empty())
+					_delayedPreloadPhaseCompleted = true;
+			}
+			return {DbStatusCode::Ok, ""};
+		}
+		auto sit = _schemas.find(name);
+		if (sit != _schemas.end())
+			sc = sit->second;
+	}
+
+	auto col =
+	    std::make_unique<Collection>(*this, name, sc, _baseDir, true, _cfg.usePSRAMBuffers, *_fs);
+	auto st = col->loadFromFs(_baseDir);
+	if (!st.ok())
+		return st;
+
+	bool inserted = false;
+	{
+		FrLock lk(_mu);
+		auto [it, didInsert] = _cols.emplace(name, std::move(col));
+		(void)it;
+		inserted = didInsert;
+		if (markDelayedHandled) {
+			_pendingDelayedCollections.erase(name);
+			if (_pendingDelayedCollections.empty())
+				_delayedPreloadPhaseCompleted = true;
+		}
+	}
+	if (insertedOut)
+		*insertedOut = inserted;
+
+	return {DbStatusCode::Ok, ""};
+}
+
+DbStatus ESPJsonDB::preloadPendingDelayedCollectionsFromFs() {
+	auto ready = ensureReady();
+	if (!ready.ok())
+		return ready;
+	if (!_fs) {
+		return {DbStatusCode::IoError, "filesystem not ready"};
+	}
+
+	std::vector<std::string> names;
+	{
+		FrLock lk(_mu);
+		names.reserve(_pendingDelayedCollections.size());
+		for (const auto &kv : _pendingDelayedCollections) {
+			names.push_back(kv.first);
+		}
+	}
+
+	for (const auto &name : names) {
+		// Only preload existing on-disk collections in the background phase.
+		if (!collectionDirExistsOnFs(name)) {
+			FrLock lk(_mu);
+			_pendingDelayedCollections.erase(name);
+			if (_pendingDelayedCollections.empty())
+				_delayedPreloadPhaseCompleted = true;
+			continue;
+		}
+		auto st = preloadCollectionFromFsByName(name, true);
+		if (!st.ok())
+			return st;
+	}
+
+	return {DbStatusCode::Ok, ""};
+}
+
+DbStatus ESPJsonDB::maybeRunDelayedPreload(bool triggeredByPeriodic) {
+	bool shouldRun = false;
+	{
+		FrLock lk(_mu);
+		if (_delayedPreloadPhaseCompleted)
+			return {DbStatusCode::Ok, ""};
+		if (_cfg.autosync) {
+			shouldRun = triggeredByPeriodic;
+		} else {
+			shouldRun = true;
+		}
+	}
+	if (!shouldRun)
+		return {DbStatusCode::Ok, ""};
+
+	auto st = preloadPendingDelayedCollectionsFromFs();
+	if (!st.ok())
+		return st;
+
+	{
+		FrLock lk(_mu);
+		if (_pendingDelayedCollections.empty()) {
+			_delayedPreloadPhaseCompleted = true;
+		}
+	}
+	return {DbStatusCode::Ok, ""};
+}
+
 ESPJsonDB::~ESPJsonDB() {
 	deinit();
 }
@@ -113,6 +249,8 @@ void ESPJsonDB::deinit() {
 		_uploadJobs.clear();
 		_terminalUploadOrder.clear();
 		_nextUploadId = 1;
+		_pendingDelayedCollections.clear();
+		_delayedPreloadPhaseCompleted = true;
 		_diagCache.docsPerCollection.clear();
 		_diagCache.collections = 0;
 		_diagCache.lastRefreshMs = 0;
@@ -173,6 +311,7 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 		_uploadJobs.clear();
 		_terminalUploadOrder.clear();
 		_nextUploadId = 1;
+		rebuildDelayedCollectionStateFromConfigLocked();
 		_dropAllRequested = false;
 		_diagCache.docsPerCollection.clear();
 		_diagCache.collections = 0;
@@ -245,6 +384,7 @@ DbStatus ESPJsonDB::dropCollection(const std::string &name) {
 		return setLastError({DbStatusCode::InvalidArgument, "reserved collection name"});
 	}
 	FrLock lk(_mu);
+	bool removed = false;
 	auto it = _cols.find(name);
 	if (it != _cols.end()) {
 		if (it->second) {
@@ -252,7 +392,17 @@ DbStatus ESPJsonDB::dropCollection(const std::string &name) {
 			it->second->markAllRemoved();
 		}
 		_cols.erase(it);
+		removed = true;
 	} else {
+		auto delayedIt = _pendingDelayedCollections.find(name);
+		if (delayedIt != _pendingDelayedCollections.end()) {
+			_pendingDelayedCollections.erase(delayedIt);
+			if (_pendingDelayedCollections.empty())
+				_delayedPreloadPhaseCompleted = true;
+			removed = true;
+		}
+	}
+	if (!removed) {
 		return setLastError({DbStatusCode::Ok, ""});
 	}
 	// Update diag cache immediately to avoid reporting stale collections
@@ -286,6 +436,7 @@ DbResult<Collection *> ESPJsonDB::collection(const std::string &name) {
 		res.status = setLastError({DbStatusCode::InvalidArgument, "reserved collection name"});
 		return res;
 	}
+	bool pendingDelayed = false;
 	{
 		FrLock lk(_mu);
 		auto it = _cols.find(name);
@@ -294,10 +445,40 @@ DbResult<Collection *> ESPJsonDB::collection(const std::string &name) {
 			res.value = it->second.get();
 			return res;
 		}
+		pendingDelayed = _pendingDelayedCollections.find(name) != _pendingDelayedCollections.end();
+	}
+
+	if (pendingDelayed) {
+		const bool existedOnFs = collectionDirExistsOnFs(name);
+		bool inserted = false;
+		auto preloadStatus = preloadCollectionFromFsByName(name, true, &inserted);
+		if (!preloadStatus.ok()) {
+			res.status = setLastError(preloadStatus);
+			return res;
+		}
+		{
+			FrLock lk(_mu);
+			auto it = _cols.find(name);
+			if (it != _cols.end()) {
+				res.status = setLastError({DbStatusCode::Ok, ""});
+				res.value = it->second.get();
+			} else {
+				res.status = setLastError({DbStatusCode::Unknown, "collection preload failed"});
+			}
+		}
+		if (res.status.ok() && inserted && !existedOnFs)
+			emitEvent(DBEventType::CollectionCreated);
+		return res;
 	}
 	Schema sc{};
 	{
 		FrLock lk(_mu);
+		auto existing = _cols.find(name);
+		if (existing != _cols.end()) {
+			res.status = {DbStatusCode::Ok, ""};
+			res.value = existing->second.get();
+			return res;
+		}
 		auto sit = _schemas.find(name);
 		if (sit != _schemas.end())
 			sc = sit->second;
@@ -560,16 +741,22 @@ void ESPJsonDB::syncTaskLoop() {
 	uint32_t lastSyncMs = millis();
 	while (!_syncStopRequested.load(std::memory_order_acquire)) {
 		bool shouldRun = false;
+		bool triggeredByPeriodic = false;
 		if (_syncKickRequested.exchange(false, std::memory_order_acq_rel)) {
 			shouldRun = true;
 		}
 		const uint32_t now = millis();
 		if (!shouldRun && _cfg.autosync && (now - lastSyncMs) >= _cfg.intervalMs) {
 			shouldRun = true;
+			triggeredByPeriodic = true;
 		}
 		if (!shouldRun) {
 			vTaskDelay(pdMS_TO_TICKS(10));
 			continue;
+		}
+		auto delayedStatus = maybeRunDelayedPreload(triggeredByPeriodic);
+		if (!delayedStatus.ok()) {
+			setLastError(delayedStatus);
 		}
 		const uint32_t targetSeq = _syncRequestSeq.load(std::memory_order_acquire);
 		lastSyncMs = now;
@@ -778,24 +965,16 @@ DbStatus ESPJsonDB::preloadCollectionsFromFs() {
 	names.erase(std::unique(names.begin(), names.end()), names.end());
 
 	for (const auto &name : names) {
-		Schema sc{};
 		{
 			FrLock lk(_mu);
 			if (_cols.find(name) != _cols.end())
 				continue;
-			auto sit = _schemas.find(name);
-			if (sit != _schemas.end())
-				sc = sit->second;
+			if (_pendingDelayedCollections.find(name) != _pendingDelayedCollections.end())
+				continue;
 		}
-		auto col = std::make_unique<
-		    Collection>(*this, name, sc, _baseDir, true, _cfg.usePSRAMBuffers, *_fs);
-		auto st = col->loadFromFs(_baseDir);
+		auto st = preloadCollectionFromFsByName(name, false);
 		if (!st.ok())
 			return setLastError(st);
-		{
-			FrLock lk(_mu);
-			_cols.emplace(name, std::move(col));
-		}
 	}
 
 	return setLastError({DbStatusCode::Ok, ""});
@@ -868,6 +1047,10 @@ JsonDocument ESPJsonDB::getDiag() {
 	cfg["priority"] = static_cast<uint32_t>(cfgCopy.priority);
 	cfg["coreId"] = static_cast<int32_t>(cfgCopy.coreId);
 	cfg["usePSRAMBuffers"] = cfgCopy.usePSRAMBuffers;
+	auto delayedArr = cfg["delayedCollectionSyncArray"].to<JsonArray>();
+	for (const auto &name : cfgCopy.delayedCollectionSyncArray) {
+		delayedArr.add(name.c_str());
+	}
 
 	setLastError({DbStatusCode::Ok, ""});
 	return doc;
@@ -893,6 +1076,8 @@ DbStatus ESPJsonDB::dropAll() {
 		_uploadJobs.clear();
 		_terminalUploadOrder.clear();
 		_nextUploadId = 1;
+		_pendingDelayedCollections.clear();
+		_delayedPreloadPhaseCompleted = true;
 		_diagCache.docsPerCollection.clear();
 		_diagCache.collections = 0;
 		_diagCache.lastRefreshMs = millis();

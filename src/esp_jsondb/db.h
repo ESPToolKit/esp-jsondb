@@ -255,6 +255,13 @@ class ESPJsonDB {
 	bool isReservedName(const std::string &name) const;
 	std::string fileRootDir() const;
 	DbStatus normalizeFilePath(const std::string &rawRelativePath, std::string &normalized) const;
+	void rebuildDelayedCollectionStateFromConfigLocked();
+	DbStatus maybeRunDelayedPreload(bool triggeredByPeriodic);
+	DbStatus preloadPendingDelayedCollectionsFromFs();
+	DbStatus preloadCollectionFromFsByName(
+	    const std::string &name, bool markDelayedHandled, bool *insertedOut = nullptr
+	);
+	bool collectionDirExistsOnFs(const std::string &name) const;
 
 	// async file upload task
 	struct FileUploadJob {
@@ -295,6 +302,8 @@ class ESPJsonDB {
 	std::atomic<bool> _syncKickRequested{false};
 	std::atomic<uint32_t> _syncRequestSeq{0};
 	std::atomic<uint32_t> _syncCompletedSeq{0};
+	std::map<std::string, bool> _pendingDelayedCollections;
+	bool _delayedPreloadPhaseCompleted = true;
 	bool _dropAllRequested = false;
 	std::atomic<bool> _fileUploadStopRequested{false};
 	std::atomic<bool> _fileUploadTaskExited{true};

@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 enum class DbStatusCode : uint8_t {
 	Ok = 0,
@@ -30,6 +31,7 @@ struct ESPJsonDBConfig {
 	bool autosync = true;
 	bool coldSync = false;
 	bool cacheEnabled = true; // must remain true; false is rejected at runtime
+	std::vector<std::string> delayedCollectionSyncArray;
 	fs::FS *fs = nullptr;     // optional external filesystem handle
 	bool initFileSystem = true;
 	bool formatOnFail = true;
