@@ -17,12 +17,14 @@ std::string parentDirOf(const std::string &path) {
 	return path.substr(0, pos);
 }
 
-DbStatus writeFromPullCb(fs::FS &filesystem,
-						 const std::string &finalPath,
-						 bool usePSRAMBuffers,
-						 const ESPJsonDBFileOptions &opts,
-						 const DbFileUploadPullCb &pullCb,
-						 size_t &totalWritten) {
+DbStatus writeFromPullCb(
+    fs::FS &filesystem,
+    const std::string &finalPath,
+    bool usePSRAMBuffers,
+    const ESPJsonDBFileOptions &opts,
+    const DbFileUploadPullCb &pullCb,
+    size_t &totalWritten
+) {
 	totalWritten = 0;
 	if (!pullCb) {
 		return {DbStatusCode::InvalidArgument, "upload callback is required"};
@@ -63,7 +65,8 @@ DbStatus writeFromPullCb(fs::FS &filesystem,
 		size_t produced = 0;
 		bool eof = false;
 		auto st = pullCb(chunkSize, buffer.data(), produced, eof);
-		if (!st.ok()) return fail(st);
+		if (!st.ok())
+			return fail(st);
 		if (produced > chunkSize) {
 			return fail({DbStatusCode::InvalidArgument, "upload callback produced too many bytes"});
 		}
@@ -74,16 +77,20 @@ DbStatus writeFromPullCb(fs::FS &filesystem,
 			}
 			totalWritten += written;
 		}
-		if (eof) break;
+		if (eof)
+			break;
 		if (produced == 0) {
-			return fail({DbStatusCode::InvalidArgument, "upload callback produced no bytes without eof"});
+			return fail(
+			    {DbStatusCode::InvalidArgument, "upload callback produced no bytes without eof"}
+			);
 		}
 	}
 
 	buffered.flush();
 	file.close();
 
-	if (opts.overwrite && filesystem.exists(finalPath.c_str()) && !filesystem.remove(finalPath.c_str())) {
+	if (opts.overwrite && filesystem.exists(finalPath.c_str()) &&
+	    !filesystem.remove(finalPath.c_str())) {
 		filesystem.remove(tmpPath.c_str());
 		return {DbStatusCode::IoError, "remove old file failed"};
 	}
@@ -97,7 +104,8 @@ DbStatus writeFromPullCb(fs::FS &filesystem,
 
 } // namespace
 
-DbStatus ESPJsonDB::normalizeFilePath(const std::string &rawRelativePath, std::string &normalized) const {
+DbStatus
+ESPJsonDB::normalizeFilePath(const std::string &rawRelativePath, std::string &normalized) const {
 	normalized.clear();
 	if (rawRelativePath.empty()) {
 		return {DbStatusCode::InvalidArgument, "file path is empty"};
@@ -128,16 +136,19 @@ DbStatus ESPJsonDB::normalizeFilePath(const std::string &rawRelativePath, std::s
 	};
 
 	for (char c : rawRelativePath) {
-		if (c == '\\') c = '/';
+		if (c == '\\')
+			c = '/';
 		if (c == '/') {
 			auto st = flushSegment();
-			if (!st.ok()) return st;
+			if (!st.ok())
+				return st;
 			continue;
 		}
 		segment.push_back(c);
 	}
 	auto st = flushSegment();
-	if (!st.ok()) return st;
+	if (!st.ok())
+		return st;
 
 	if (normalized.empty()) {
 		return {DbStatusCode::InvalidArgument, "file path resolves to empty"};
@@ -146,23 +157,26 @@ DbStatus ESPJsonDB::normalizeFilePath(const std::string &rawRelativePath, std::s
 	return {DbStatusCode::Ok, ""};
 }
 
-DbStatus ESPJsonDB::writeFileStream(const std::string &relativePath,
-									Stream &in,
-									size_t bytesToWrite,
-									const ESPJsonDBFileOptions &opts) {
+DbStatus ESPJsonDB::writeFileStream(
+    const std::string &relativePath,
+    Stream &in,
+    size_t bytesToWrite,
+    const ESPJsonDBFileOptions &opts
+) {
 	auto ready = ensureReady();
-	if (!ready.ok()) return setLastError(ready);
+	if (!ready.ok())
+		return setLastError(ready);
 
 	std::string normalized;
 	auto nst = normalizeFilePath(relativePath, normalized);
-	if (!nst.ok()) return setLastError(nst);
+	if (!nst.ok())
+		return setLastError(nst);
 
 	const std::string finalPath = joinPath(fileRootDir(), normalized);
 	size_t remaining = bytesToWrite;
-	DbFileUploadPullCb pullCb = [&in, &remaining](size_t requested,
-												   uint8_t *buffer,
-												   size_t &produced,
-												   bool &eof) -> DbStatus {
+	DbFileUploadPullCb pullCb =
+	    [&in,
+	     &remaining](size_t requested, uint8_t *buffer, size_t &produced, bool &eof) -> DbStatus {
 		if (!buffer) {
 			return {DbStatusCode::InvalidArgument, "buffer is null"};
 		}
@@ -184,7 +198,8 @@ DbStatus ESPJsonDB::writeFileStream(const std::string &relativePath,
 
 	size_t totalWritten = 0;
 	auto st = writeFromPullCb(*_fs, finalPath, _cfg.usePSRAMBuffers, opts, pullCb, totalWritten);
-	if (!st.ok()) return setLastError(st);
+	if (!st.ok())
+		return setLastError(st);
 	if (totalWritten != bytesToWrite) {
 		return setLastError({DbStatusCode::IoError, "written size mismatch"});
 	}
@@ -192,15 +207,19 @@ DbStatus ESPJsonDB::writeFileStream(const std::string &relativePath,
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
-DbStatus ESPJsonDB::writeFileStream(const std::string &relativePath,
-									const DbFileUploadPullCb &pullCb,
-									const ESPJsonDBFileOptions &opts) {
+DbStatus ESPJsonDB::writeFileStream(
+    const std::string &relativePath,
+    const DbFileUploadPullCb &pullCb,
+    const ESPJsonDBFileOptions &opts
+) {
 	auto ready = ensureReady();
-	if (!ready.ok()) return setLastError(ready);
+	if (!ready.ok())
+		return setLastError(ready);
 
 	std::string normalized;
 	auto nst = normalizeFilePath(relativePath, normalized);
-	if (!nst.ok()) return setLastError(nst);
+	if (!nst.ok())
+		return setLastError(nst);
 
 	const std::string finalPath = joinPath(fileRootDir(), normalized);
 	size_t totalWritten = 0;
@@ -208,14 +227,17 @@ DbStatus ESPJsonDB::writeFileStream(const std::string &relativePath,
 	return setLastError(st);
 }
 
-DbStatus ESPJsonDB::writeFileFromPath(const std::string &relativePath,
-									  const std::string &sourceFsPath,
-									  const ESPJsonDBFileOptions &opts) {
+DbStatus ESPJsonDB::writeFileFromPath(
+    const std::string &relativePath,
+    const std::string &sourceFsPath,
+    const ESPJsonDBFileOptions &opts
+) {
 	if (sourceFsPath.empty()) {
 		return setLastError({DbStatusCode::InvalidArgument, "source file path is empty"});
 	}
 	auto ready = ensureReady();
-	if (!ready.ok()) return setLastError(ready);
+	if (!ready.ok())
+		return setLastError(ready);
 
 	File source;
 	{
@@ -232,20 +254,21 @@ DbStatus ESPJsonDB::writeFileFromPath(const std::string &relativePath,
 	return st;
 }
 
-DbStatus ESPJsonDB::writeFile(const std::string &relativePath,
-								 const uint8_t *data,
-								 size_t size,
-								 bool overwrite) {
+DbStatus ESPJsonDB::writeFile(
+    const std::string &relativePath, const uint8_t *data, size_t size, bool overwrite
+) {
 	if (size > 0 && data == nullptr) {
 		return setLastError({DbStatusCode::InvalidArgument, "file data is null"});
 	}
 
 	auto ready = ensureReady();
-	if (!ready.ok()) return setLastError(ready);
+	if (!ready.ok())
+		return setLastError(ready);
 
 	std::string normalized;
 	auto nst = normalizeFilePath(relativePath, normalized);
-	if (!nst.ok()) return setLastError(nst);
+	if (!nst.ok())
+		return setLastError(nst);
 
 	const std::string finalPath = joinPath(fileRootDir(), normalized);
 	const std::string parentDir = parentDirOf(finalPath);
@@ -291,16 +314,18 @@ DbStatus ESPJsonDB::writeFile(const std::string &relativePath,
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
-DbStatus ESPJsonDB::writeTextFile(const std::string &relativePath,
-								 const std::string &text,
-								 bool overwrite) {
-	return writeFile(relativePath,
-					 reinterpret_cast<const uint8_t *>(text.data()),
-					 text.size(),
-					 overwrite);
+DbStatus
+ESPJsonDB::writeTextFile(const std::string &relativePath, const std::string &text, bool overwrite) {
+	return writeFile(
+	    relativePath,
+	    reinterpret_cast<const uint8_t *>(text.data()),
+	    text.size(),
+	    overwrite
+	);
 }
 
-DbResult<size_t> ESPJsonDB::readFileStream(const std::string &relativePath, Stream &out, size_t chunkSize) {
+DbResult<size_t>
+ESPJsonDB::readFileStream(const std::string &relativePath, Stream &out, size_t chunkSize) {
 	DbResult<size_t> res{};
 	auto ready = ensureReady();
 	if (!ready.ok()) {
@@ -315,7 +340,8 @@ DbResult<size_t> ESPJsonDB::readFileStream(const std::string &relativePath, Stre
 		return res;
 	}
 
-	if (chunkSize < 32) chunkSize = 32;
+	if (chunkSize < 32)
+		chunkSize = 32;
 	JsonDbVector<uint8_t> buffer{JsonDbAllocator<uint8_t>(_cfg.usePSRAMBuffers)};
 	buffer.resize(chunkSize);
 	const std::string path = joinPath(fileRootDir(), normalized);
@@ -330,7 +356,8 @@ DbResult<size_t> ESPJsonDB::readFileStream(const std::string &relativePath, Stre
 	size_t total = 0;
 	while (true) {
 		size_t readBytes = f.read(buffer.data(), buffer.size());
-		if (readBytes == 0) break;
+		if (readBytes == 0)
+			break;
 		size_t written = out.write(buffer.data(), readBytes);
 		if (written != readBytes) {
 			f.close();
@@ -401,11 +428,13 @@ DbResult<std::string> ESPJsonDB::readTextFile(const std::string &relativePath) {
 
 DbStatus ESPJsonDB::removeFile(const std::string &relativePath) {
 	auto ready = ensureReady();
-	if (!ready.ok()) return setLastError(ready);
+	if (!ready.ok())
+		return setLastError(ready);
 
 	std::string normalized;
 	auto nst = normalizeFilePath(relativePath, normalized);
-	if (!nst.ok()) return setLastError(nst);
+	if (!nst.ok())
+		return setLastError(nst);
 
 	const std::string path = joinPath(fileRootDir(), normalized);
 	FrLock fs(g_fsMutex);

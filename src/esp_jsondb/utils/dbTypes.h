@@ -5,8 +5,8 @@
 #include <FS.h>
 #include <freertos/FreeRTOS.h>
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <string>
 
@@ -30,7 +30,7 @@ struct ESPJsonDBConfig {
 	bool autosync = true;
 	bool coldSync = false;
 	bool cacheEnabled = true; // must remain true; false is rejected at runtime
-	fs::FS *fs = nullptr; // optional external filesystem handle
+	fs::FS *fs = nullptr;     // optional external filesystem handle
 	bool initFileSystem = true;
 	bool formatOnFail = true;
 	uint8_t maxOpenFiles = 10;
@@ -55,67 +55,65 @@ enum class DBEventType : uint8_t {
 // Human-readable descriptions for DBEventType values.
 // Embedded-friendly: constexpr data and inline accessor (no dynamic alloc, no exceptions)
 static constexpr const char *kDBEventTypeDescriptions[] = {
-	"Sync completed",
-	"Collection created",
-	"Collection dropped",
-	"Document created",
-	"Document updated",
-	"Document deleted"};
+    "Sync completed",
+    "Collection created",
+    "Collection dropped",
+    "Document created",
+    "Document updated",
+    "Document deleted"
+};
 
 inline const char *dbEventTypeToString(DBEventType ev) {
 	const auto idx = static_cast<uint8_t>(ev);
-	const auto count = static_cast<uint8_t>(sizeof(kDBEventTypeDescriptions) / sizeof(kDBEventTypeDescriptions[0]));
+	const auto count = static_cast<uint8_t>(
+	    sizeof(kDBEventTypeDescriptions) / sizeof(kDBEventTypeDescriptions[0])
+	);
 	return (idx < count) ? kDBEventTypeDescriptions[idx] : "Unknown";
 }
 
 // Human-readable descriptions for DbStatusCode values.
 // Embedded-friendly: constexpr data and inline accessor (no dynamic alloc, no exceptions)
 static constexpr const char *kDbStatusCodeDescriptions[] = {
-	"Ok",
-	"Not found",
-	"Already exists",
-	"Invalid argument",
-	"Validation failed",
-	"I/O error",
-	"Corrupted",
-	"Busy",
-	"Unknown",
+    "Ok",
+    "Not found",
+    "Already exists",
+    "Invalid argument",
+    "Validation failed",
+    "I/O error",
+    "Corrupted",
+    "Busy",
+    "Unknown",
 };
 
 inline const char *dbStatusCodeToString(DbStatusCode code) {
 	const auto idx = static_cast<uint8_t>(code);
-	const auto count = static_cast<uint8_t>(sizeof(kDbStatusCodeDescriptions) / sizeof(kDbStatusCodeDescriptions[0]));
+	const auto count = static_cast<uint8_t>(
+	    sizeof(kDbStatusCodeDescriptions) / sizeof(kDbStatusCodeDescriptions[0])
+	);
 	return (idx < count) ? kDbStatusCodeDescriptions[idx] : "Unknown";
 }
 
 struct DbStatus {
-    DbStatusCode code = DbStatusCode::Ok;
-    const char *message = "";
-    // Explicit default and convenience constructor to allow brace assignments
-    DbStatus() = default;
-    DbStatus(DbStatusCode c, const char *msg) : code(c), message(msg) {}
-    bool ok() const { return code == DbStatusCode::Ok; }
+	DbStatusCode code = DbStatusCode::Ok;
+	const char *message = "";
+	// Explicit default and convenience constructor to allow brace assignments
+	DbStatus() = default;
+	DbStatus(DbStatusCode c, const char *msg) : code(c), message(msg) {
+	}
+	bool ok() const {
+		return code == DbStatusCode::Ok;
+	}
 };
 
-enum class DbFileUploadState : uint8_t {
-	Queued = 0,
-	Running,
-	Completed,
-	Failed,
-	Cancelled
-};
+enum class DbFileUploadState : uint8_t { Queued = 0, Running, Completed, Failed, Cancelled };
 
-using DbFileUploadPullCb = std::function<DbStatus(size_t requested,
-												  uint8_t *buffer,
-												  size_t &produced,
-												  bool &eof)>;
+using DbFileUploadPullCb =
+    std::function<DbStatus(size_t requested, uint8_t *buffer, size_t &produced, bool &eof)>;
 
-using DbFileUploadDoneCb = std::function<void(uint32_t uploadId,
-											  const DbStatus &status,
-											  size_t bytesWritten)>;
+using DbFileUploadDoneCb =
+    std::function<void(uint32_t uploadId, const DbStatus &status, size_t bytesWritten)>;
 
-template <typename T>
-struct DbResult {
+template <typename T> struct DbResult {
 	DbStatus status;
 	T value;
 };

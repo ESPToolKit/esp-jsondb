@@ -18,13 +18,13 @@ std::string parentDirForAsyncUpload(const std::string &path) {
 } // namespace
 
 bool ESPJsonDB::isUploadTerminal(DbFileUploadState state) const {
-	return state == DbFileUploadState::Completed ||
-		   state == DbFileUploadState::Failed ||
-		   state == DbFileUploadState::Cancelled;
+	return state == DbFileUploadState::Completed || state == DbFileUploadState::Failed ||
+	       state == DbFileUploadState::Cancelled;
 }
 
 void ESPJsonDB::trackTerminalUploadLocked(const std::shared_ptr<FileUploadJob> &job) {
-	if (!job || !isUploadTerminal(job->state) || job->terminalTracked) return;
+	if (!job || !isUploadTerminal(job->state) || job->terminalTracked)
+		return;
 
 	job->terminalTracked = true;
 	_terminalUploadOrder.push_back(job->id);
@@ -34,17 +34,20 @@ void ESPJsonDB::trackTerminalUploadLocked(const std::shared_ptr<FileUploadJob> &
 		_terminalUploadOrder.erase(_terminalUploadOrder.begin());
 
 		auto it = _uploadJobs.find(expiredId);
-		if (it == _uploadJobs.end()) continue;
+		if (it == _uploadJobs.end())
+			continue;
 		if (!it->second || isUploadTerminal(it->second->state)) {
 			_uploadJobs.erase(it);
 		}
 	}
 }
 
-DbResult<uint32_t> ESPJsonDB::writeFileStreamAsync(const std::string &relativePath,
-														const DbFileUploadPullCb &pullCb,
-														const ESPJsonDBFileOptions &opts,
-														const DbFileUploadDoneCb &doneCb) {
+DbResult<uint32_t> ESPJsonDB::writeFileStreamAsync(
+    const std::string &relativePath,
+    const DbFileUploadPullCb &pullCb,
+    const ESPJsonDBFileOptions &opts,
+    const DbFileUploadDoneCb &doneCb
+) {
 	DbResult<uint32_t> res{};
 	auto ready = ensureReady();
 	if (!ready.ok()) {
@@ -67,7 +70,8 @@ DbResult<uint32_t> ESPJsonDB::writeFileStreamAsync(const std::string &relativePa
 	job->relativePath = relativePath;
 	job->normalizedPath = normalized;
 	job->opts = opts;
-	if (job->opts.chunkSize < 32) job->opts.chunkSize = 32;
+	if (job->opts.chunkSize < 32)
+		job->opts.chunkSize = 32;
 	job->pullCb = pullCb;
 	job->doneCb = doneCb;
 
@@ -78,7 +82,10 @@ DbResult<uint32_t> ESPJsonDB::writeFileStreamAsync(const std::string &relativePa
 		_uploadQueue.push_back(job->id);
 		startFileUploadTaskUnlocked();
 		if (_fileUploadTask == nullptr) {
-			_uploadQueue.erase(std::remove(_uploadQueue.begin(), _uploadQueue.end(), job->id), _uploadQueue.end());
+			_uploadQueue.erase(
+			    std::remove(_uploadQueue.begin(), _uploadQueue.end(), job->id),
+			    _uploadQueue.end()
+			);
 			_uploadJobs.erase(job->id);
 			res.status = setLastError({DbStatusCode::Busy, "upload worker start failed"});
 			return res;
@@ -112,7 +119,10 @@ DbStatus ESPJsonDB::cancelFileUpload(uint32_t uploadId) {
 
 		job->cancelRequested = true;
 		if (job->state == DbFileUploadState::Queued) {
-			_uploadQueue.erase(std::remove(_uploadQueue.begin(), _uploadQueue.end(), uploadId), _uploadQueue.end());
+			_uploadQueue.erase(
+			    std::remove(_uploadQueue.begin(), _uploadQueue.end(), uploadId),
+			    _uploadQueue.end()
+			);
 			job->state = DbFileUploadState::Cancelled;
 			job->finalStatus = doneStatus;
 			trackTerminalUploadLocked(job);
@@ -156,7 +166,8 @@ void ESPJsonDB::fileUploadTaskThunk(void *arg) {
 }
 
 void ESPJsonDB::startFileUploadTaskUnlocked() {
-	if (_fileUploadTask != nullptr) return;
+	if (_fileUploadTask != nullptr)
+		return;
 	_fileUploadStopRequested.store(false, std::memory_order_release);
 	_fileUploadTaskExited.store(false, std::memory_order_release);
 	TaskHandle_t handle = nullptr;
@@ -171,7 +182,8 @@ void ESPJsonDB::stopFileUploadTaskUnlocked(bool cancelPending) {
 	if (cancelPending) {
 		for (auto &kv : _uploadJobs) {
 			auto &job = kv.second;
-			if (!job || isUploadTerminal(job->state)) continue;
+			if (!job || isUploadTerminal(job->state))
+				continue;
 			job->cancelRequested = true;
 			job->state = DbFileUploadState::Cancelled;
 			job->finalStatus = {DbStatusCode::Busy, "upload cancelled"};
@@ -183,7 +195,8 @@ void ESPJsonDB::stopFileUploadTaskUnlocked(bool cancelPending) {
 	}
 }
 
-DbStatus ESPJsonDB::runFileUploadJob(const std::shared_ptr<FileUploadJob> &job, size_t &bytesWritten) {
+DbStatus
+ESPJsonDB::runFileUploadJob(const std::shared_ptr<FileUploadJob> &job, size_t &bytesWritten) {
 	bytesWritten = 0;
 	if (!job || !job->pullCb) {
 		return {DbStatusCode::InvalidArgument, "upload callback is required"};
@@ -276,7 +289,8 @@ DbStatus ESPJsonDB::runFileUploadJob(const std::shared_ptr<FileUploadJob> &job, 
 		FrLock fs(g_fsMutex);
 		f.flush();
 		f.close();
-		if (job->opts.overwrite && _fs->exists(finalPath.c_str()) && !_fs->remove(finalPath.c_str())) {
+		if (job->opts.overwrite && _fs->exists(finalPath.c_str()) &&
+		    !_fs->remove(finalPath.c_str())) {
 			if (_fs->exists(tmpPath.c_str())) {
 				_fs->remove(tmpPath.c_str());
 			}

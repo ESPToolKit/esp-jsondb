@@ -134,18 +134,8 @@ Please keep these in mind when contributing:
 - **I/O**: Use `StreamUtils::WriteBufferingStream` for buffered writes.
 - **Validation**: Run schema hooks on create/update; on failure revert and return a validation error.
 - **Naming**: lowerCamelCase for methods/vars, UpperCamelCase for types, ALL_CAPS for simple constants/enums.
-- **Formatting**: Use a consistent `clang-format` (LLVM/Google); keep lines ≤ 120 cols.
+- **Formatting**: Follow the repository `.clang-format` + `.editorconfig` baseline from `esptoolkit-template` (LLVM-derived style, `ColumnLimit: 100`, tabs with width `4`, `BinPackArguments/Parameters: false`, `AllowShortFunctionsOnASingleLine: None`).
 - **Allocations**: Avoid hidden allocations in hot paths and inside event callbacks & sync loops.
-
-Optional `.clang-format` starter (Google-like):
-```yaml
-BasedOnStyle: Google
-IndentWidth: 4
-ColumnLimit: 120
-DerivePointerAlignment: false
-PointerAlignment: Left
-AllowShortFunctionsOnASingleLine: Empty
-```
 
 ---
 

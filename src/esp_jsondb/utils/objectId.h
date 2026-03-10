@@ -11,9 +11,9 @@
 #include <string>
 
 /*
-	ObjectId-style IDs (12-byte → 24-hex)
-	Layout: 4 bytes seconds since epoch, 5 bytes device/random, 3 bytes counter.
-	Nice compromise between uniqueness and cost.
+    ObjectId-style IDs (12-byte → 24-hex)
+    Layout: 4 bytes seconds since epoch, 5 bytes device/random, 3 bytes counter.
+    Nice compromise between uniqueness and cost.
 */
 class ObjectId {
   public:

@@ -3,12 +3,12 @@
 #include <Arduino.h>
 
 #include <LittleFS.h>
+#include <atomic>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <functional>
 #include <map>
 #include <memory>
-#include <atomic>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -24,7 +24,9 @@ class ESPJsonDB {
 	~ESPJsonDB();
 	DbStatus init(const char *baseDir = "/db", const ESPJsonDBConfig &cfg = {});
 	void deinit();
-	bool isInitialized() const { return _initialized.load(std::memory_order_acquire); }
+	bool isInitialized() const {
+		return _initialized.load(std::memory_order_acquire);
+	}
 	DbStatus registerSchema(const std::string &name, const Schema &s);
 	DbStatus unRegisterSchema(const std::string &name);
 	DbStatus dropCollection(const std::string &name);
@@ -60,36 +62,49 @@ class ESPJsonDB {
 	DbResult<std::string> create(const std::string &collectionName, const JsonDocument &doc);
 
 	// Convenience: bulk create documents in a collection
-	DbResult<std::vector<std::string>> createMany(const std::string &collectionName, JsonArrayConst arr);
-	DbResult<std::vector<std::string>> createMany(const std::string &collectionName, const JsonDocument &arrDoc);
+	DbResult<std::vector<std::string>>
+	createMany(const std::string &collectionName, JsonArrayConst arr);
+	DbResult<std::vector<std::string>>
+	createMany(const std::string &collectionName, const JsonDocument &arrDoc);
 
 	// Convenience: find a document by _id in the given collection
 	DbResult<DocView> findById(const std::string &collectionName, const std::string &id);
 
 	// Convenience: find documents matching predicate in the given collection
-	DbResult<std::vector<DocView>> findMany(const std::string &collectionName,
-											std::function<bool(const DocView &)> pred);
+	DbResult<std::vector<DocView>>
+	findMany(const std::string &collectionName, std::function<bool(const DocView &)> pred);
 
 	// Convenience: find the first document matching predicate in the given collection
-	DbResult<DocView> findOne(const std::string &collectionName, std::function<bool(const DocView &)> pred);
+	DbResult<DocView>
+	findOne(const std::string &collectionName, std::function<bool(const DocView &)> pred);
 
 	// Convenience: find the first document matching a JSON filter in the given collection
 	DbResult<DocView> findOne(const std::string &collectionName, const JsonDocument &filter);
 
-	// Convenience: update the first match (predicate + mutator). If create=true, creates new when none found
-	DbStatus updateOne(const std::string &collectionName,
-					   std::function<bool(const DocView &)> pred,
-					   std::function<void(DocView &)> mutator,
-					   bool create = false);
+	// Convenience: update the first match (predicate + mutator). If create=true, creates new when
+	// none found
+	DbStatus updateOne(
+	    const std::string &collectionName,
+	    std::function<bool(const DocView &)> pred,
+	    std::function<void(DocView &)> mutator,
+	    bool create = false
+	);
 
-	// Convenience: update the first match (JSON filter + JSON patch). If create=true, creates new when none found
-	DbStatus updateOne(const std::string &collectionName,
-					   const JsonDocument &filter,
-					   const JsonDocument &patch,
-					   bool create = false);
+	// Convenience: update the first match (JSON filter + JSON patch). If create=true, creates new
+	// when none found
+	DbStatus updateOne(
+	    const std::string &collectionName,
+	    const JsonDocument &filter,
+	    const JsonDocument &patch,
+	    bool create = false
+	);
 
 	// Convenience: update a document by _id in the given collection
-	DbStatus updateById(const std::string &collectionName, const std::string &id, std::function<void(DocView &)> mutator);
+	DbStatus updateById(
+	    const std::string &collectionName,
+	    const std::string &id,
+	    std::function<void(DocView &)> mutator
+	);
 
 	// Convenience: remove a document by _id in the given collection
 	DbStatus removeById(const std::string &collectionName, const std::string &id);
@@ -98,27 +113,41 @@ class ESPJsonDB {
 	template <typename Pred>
 	DbResult<size_t> removeMany(const std::string &collectionName, Pred &&p);
 
-	template <typename Pred, typename Mut, typename = std::enable_if_t<!std::is_same_v<std::decay_t<Pred>, JsonDocument> && !std::is_same_v<std::decay_t<Mut>, JsonDocument>>>
+	template <
+	    typename Pred,
+	    typename Mut,
+	    typename = std::enable_if_t<
+	        !std::is_same_v<std::decay_t<Pred>, JsonDocument> &&
+	        !std::is_same_v<std::decay_t<Mut>, JsonDocument>>>
 	DbResult<size_t> updateMany(const std::string &collectionName, Pred &&p, Mut &&m);
 
-	template <typename Mut,
-			  typename = std::enable_if_t<!std::is_same_v<std::decay_t<Mut>, JsonDocument>>>
+	template <
+	    typename Mut,
+	    typename = std::enable_if_t<!std::is_same_v<std::decay_t<Mut>, JsonDocument>>>
 	DbResult<size_t> updateMany(const std::string &collectionName, Mut &&m);
 
-	template <typename Pred,
-			  typename = std::enable_if_t<!std::is_same_v<std::decay_t<Pred>, JsonDocument>>>
-	DbResult<size_t> updateMany(const std::string &collectionName, const JsonDocument &patch, Pred &&p);
+	template <
+	    typename Pred,
+	    typename = std::enable_if_t<!std::is_same_v<std::decay_t<Pred>, JsonDocument>>>
+	DbResult<size_t>
+	updateMany(const std::string &collectionName, const JsonDocument &patch, Pred &&p);
 
-	DbResult<size_t> updateMany(const std::string &collectionName, const JsonDocument &patch, const JsonDocument &filter);
+	DbResult<size_t> updateMany(
+	    const std::string &collectionName, const JsonDocument &patch, const JsonDocument &filter
+	);
 
 	// Manual sync (safe to call from app)
 	DbStatus syncNow();
 
 	// Retrieve last error or success status
-	DbStatus lastError() const { return _lastError; }
+	DbStatus lastError() const {
+		return _lastError;
+	}
 
 	// Allow other components to update diagnostics/error state
-	DbStatus recordStatus(const DbStatus &st) { return setLastError(st); }
+	DbStatus recordStatus(const DbStatus &st) {
+		return setLastError(st);
+	}
 
 	// Diagnostics: number of collections, doc counts, and config
 	JsonDocument getDiag();
@@ -128,20 +157,30 @@ class ESPJsonDB {
 	DbStatus restoreFromSnapshot(const JsonDocument &snapshot);
 
 	// Generic file-bytes helpers under <baseDir>/_files.
-	DbStatus writeFileStream(const std::string &relativePath,
-							 Stream &in,
-							 size_t bytesToWrite,
-							 const ESPJsonDBFileOptions &opts = {});
-	DbStatus writeFileStream(const std::string &relativePath,
-							 const DbFileUploadPullCb &pullCb,
-							 const ESPJsonDBFileOptions &opts = {});
-	DbStatus writeFileFromPath(const std::string &relativePath,
-							   const std::string &sourceFsPath,
-							   const ESPJsonDBFileOptions &opts = {});
-	DbStatus writeFile(const std::string &relativePath, const uint8_t *data, size_t size, bool overwrite = true);
-	DbStatus writeTextFile(const std::string &relativePath, const std::string &text, bool overwrite = true);
+	DbStatus writeFileStream(
+	    const std::string &relativePath,
+	    Stream &in,
+	    size_t bytesToWrite,
+	    const ESPJsonDBFileOptions &opts = {}
+	);
+	DbStatus writeFileStream(
+	    const std::string &relativePath,
+	    const DbFileUploadPullCb &pullCb,
+	    const ESPJsonDBFileOptions &opts = {}
+	);
+	DbStatus writeFileFromPath(
+	    const std::string &relativePath,
+	    const std::string &sourceFsPath,
+	    const ESPJsonDBFileOptions &opts = {}
+	);
+	DbStatus writeFile(
+	    const std::string &relativePath, const uint8_t *data, size_t size, bool overwrite = true
+	);
+	DbStatus
+	writeTextFile(const std::string &relativePath, const std::string &text, bool overwrite = true);
 
-	DbResult<size_t> readFileStream(const std::string &relativePath, Stream &out, size_t chunkSize = 512);
+	DbResult<size_t>
+	readFileStream(const std::string &relativePath, Stream &out, size_t chunkSize = 512);
 	DbResult<std::vector<uint8_t>> readFile(const std::string &relativePath);
 	DbResult<std::string> readTextFile(const std::string &relativePath);
 
@@ -151,10 +190,12 @@ class ESPJsonDB {
 
 	// Non-blocking chunked file upload worker API.
 	// The pull callback runs on a background task and must fill up to `requested` bytes.
-	DbResult<uint32_t> writeFileStreamAsync(const std::string &relativePath,
-											const DbFileUploadPullCb &pullCb,
-											const ESPJsonDBFileOptions &opts = {},
-											const DbFileUploadDoneCb &doneCb = {});
+	DbResult<uint32_t> writeFileStreamAsync(
+	    const std::string &relativePath,
+	    const DbFileUploadPullCb &pullCb,
+	    const ESPJsonDBFileOptions &opts = {},
+	    const DbFileUploadDoneCb &doneCb = {}
+	);
 	DbStatus cancelFileUpload(uint32_t uploadId);
 	DbResult<DbFileUploadState> getFileUploadState(uint32_t uploadId);
 
@@ -177,7 +218,7 @@ class ESPJsonDB {
 	std::vector<std::function<void(DBEventType)>> _eventCbs;
 	std::vector<std::function<void(const DbStatus &)>> _errorCbs;
 	fs::FS *_fs = &LittleFS; // active filesystem
-	FrMutex _mu; // guards _cols, _schemas, _colsToDelete
+	FrMutex _mu;             // guards _cols, _schemas, _colsToDelete
 
 	// Tracks most recent status for diagnostics/debugging
 	DbStatus _lastError{DbStatusCode::Ok, ""};
@@ -188,7 +229,7 @@ class ESPJsonDB {
 		uint32_t lastRefreshMs = 0; // millis when refreshed from FS
 	};
 
-	DiagCache _diagCache; // cached diagnostics; read without touching FS
+	DiagCache _diagCache;          // cached diagnostics; read without touching FS
 	bool _diagCachePrimed = false; // true once runtime counters are initialized
 	std::atomic<bool> _initialized{false};
 
@@ -202,7 +243,8 @@ class ESPJsonDB {
 	// Update last error/status helper
 	DbStatus setLastError(const DbStatus &st) {
 		_lastError = st;
-		if (!st.ok()) emitError(st);
+		if (!st.ok())
+			emitError(st);
 		return st;
 	}
 
@@ -236,7 +278,9 @@ class ESPJsonDB {
 	bool isUploadTerminal(DbFileUploadState state) const;
 	void trackTerminalUploadLocked(const std::shared_ptr<FileUploadJob> &job);
 	bool createTask(TaskFunction_t entry, const char *name, TaskHandle_t &outHandle);
-	void stopTask(TaskHandle_t &taskHandle, std::atomic<bool> &stopRequested, std::atomic<bool> &taskExited);
+	void stopTask(
+	    TaskHandle_t &taskHandle, std::atomic<bool> &stopRequested, std::atomic<bool> &taskExited
+	);
 	static uint32_t stackBytesToWords(uint32_t stackBytes);
 
 	// Refresh diag cache from filesystem (expensive; used only for explicit full refresh paths)
@@ -295,7 +339,8 @@ DbResult<size_t> ESPJsonDB::updateMany(const std::string &collectionName, Mut &&
 }
 
 template <typename Pred, typename>
-DbResult<size_t> ESPJsonDB::updateMany(const std::string &collectionName, const JsonDocument &patch, Pred &&p) {
+DbResult<size_t>
+ESPJsonDB::updateMany(const std::string &collectionName, const JsonDocument &patch, Pred &&p) {
 	DbResult<size_t> res{};
 	auto cr = collection(collectionName);
 	if (!cr.status.ok()) {

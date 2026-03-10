@@ -46,19 +46,22 @@ inline void *reallocate(void *ptr, std::size_t bytes, bool usePSRAMBuffers) noex
 
 } // namespace jsondb_allocator_detail
 
-template <typename T>
-class JsonDbAllocator {
+template <typename T> class JsonDbAllocator {
   public:
 	using value_type = T;
 
 	JsonDbAllocator() noexcept = default;
-	explicit JsonDbAllocator(bool usePSRAMBuffers) noexcept : _usePSRAMBuffers(usePSRAMBuffers) {}
+	explicit JsonDbAllocator(bool usePSRAMBuffers) noexcept : _usePSRAMBuffers(usePSRAMBuffers) {
+	}
 
 	template <typename U>
-	JsonDbAllocator(const JsonDbAllocator<U> &other) noexcept : _usePSRAMBuffers(other.usePSRAMBuffers()) {}
+	JsonDbAllocator(const JsonDbAllocator<U> &other) noexcept
+	    : _usePSRAMBuffers(other.usePSRAMBuffers()) {
+	}
 
 	T *allocate(std::size_t n) {
-		if (n == 0) return nullptr;
+		if (n == 0)
+			return nullptr;
 		if (n > (std::numeric_limits<std::size_t>::max() / sizeof(T))) {
 #if defined(__cpp_exceptions)
 			throw std::bad_alloc();
@@ -86,22 +89,18 @@ class JsonDbAllocator {
 		return _usePSRAMBuffers;
 	}
 
-	template <typename U>
-	bool operator==(const JsonDbAllocator<U> &other) const noexcept {
+	template <typename U> bool operator==(const JsonDbAllocator<U> &other) const noexcept {
 		return _usePSRAMBuffers == other.usePSRAMBuffers();
 	}
 
-	template <typename U>
-	bool operator!=(const JsonDbAllocator<U> &other) const noexcept {
+	template <typename U> bool operator!=(const JsonDbAllocator<U> &other) const noexcept {
 		return !(*this == other);
 	}
 
   private:
-	template <typename>
-	friend class JsonDbAllocator;
+	template <typename> friend class JsonDbAllocator;
 
 	bool _usePSRAMBuffers = false;
 };
 
-template <typename T>
-using JsonDbVector = std::vector<T, JsonDbAllocator<T>>;
+template <typename T> using JsonDbVector = std::vector<T, JsonDbAllocator<T>>;

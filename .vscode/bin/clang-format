@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if command -v clang-format >/dev/null 2>&1; then
+    exec clang-format "$@"
+fi
+
+_home_dir="${HOME:-}"
+if [ -n "$_home_dir" ]; then
+    _candidate="$(ls -1d "$_home_dir"/.vscode/extensions/ms-vscode.cpptools-*-linux-x64/LLVM/bin/clang-format 2>/dev/null | tail -n 1 || true)"
+    if [ -n "$_candidate" ] && [ -x "$_candidate" ]; then
+        exec "$_candidate" "$@"
+    fi
+fi
+
+echo "clang-format executable not found." >&2
+echo "Install clang-format system-wide or install/update ms-vscode.cpptools." >&2
+exit 127

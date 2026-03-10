@@ -1,4 +1,3 @@
 .venv
 build/
 build_prev_runner/
-.vscode
