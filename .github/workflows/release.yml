@@ -8,9 +8,76 @@ on:
 jobs:
   create-release:
     runs-on: ubuntu-latest
+    concurrency:
+      group: release-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
+      actions: read
       contents: write
     steps:
+      - name: Wait for CI workflow success
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const targetSha = context.sha;
+            const targetRef = context.ref;
+            const targetTag = targetRef.replace('refs/tags/', '');
+            const workflowId = 'ci.yml';
+            const pollMs = 20000;
+            const timeoutMs = 45 * 60 * 1000;
+            const startedAt = Date.now();
+            const failingConclusions = new Set(['failure', 'cancelled', 'timed_out', 'action_required']);
+
+            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+            core.info(`Waiting for CI workflow (${workflowId}) success on ${targetRef} (${targetSha})`);
+
+            while (true) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: workflowId,
+                event: 'push',
+                head_sha: targetSha,
+                per_page: 100,
+              });
+
+              const matchingRuns = data.workflow_runs
+                .filter((run) => run.ref === targetRef)
+                .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+              if (matchingRuns.length > 0) {
+                const run = matchingRuns[0];
+                core.info(`Found CI run #${run.run_number}: status=${run.status}, conclusion=${run.conclusion ?? 'n/a'}`);
+
+                if (run.status === 'completed') {
+                  if (run.conclusion === 'success') {
+                    core.info(`CI succeeded for ${targetTag}. Continuing release.`);
+                    return;
+                  }
+
+                  if (failingConclusions.has(run.conclusion)) {
+                    core.setFailed(`CI did not succeed for ${targetTag}. Conclusion: ${run.conclusion}.`);
+                    return;
+                  }
+
+                  core.setFailed(`CI completed without success for ${targetTag}. Conclusion: ${run.conclusion ?? 'unknown'}.`);
+                  return;
+                }
+              } else {
+                core.info('CI run for this tag is not visible yet. Waiting...');
+              }
+
+              if (Date.now() - startedAt >= timeoutMs) {
+                core.setFailed(`Timed out after ${timeoutMs / 60000} minutes waiting for successful CI on ${targetTag}.`);
+                return;
+              }
+
+              await sleep(pollMs);
+            }
+
       - name: Checkout
         uses: actions/checkout@v4
 
