@@ -8,16 +8,21 @@ struct DocRef {
 	std::string collection;
 	std::string id; // target _id
 
-	bool valid() const { return !collection.empty() && !id.empty(); }
+	bool valid() const {
+		return !collection.empty() && !id.empty();
+	}
 };
 
 inline DocRef docRefFromJson(JsonVariantConst v) {
 	DocRef r{};
-	if (!v.is<JsonObjectConst>()) return r;
+	if (!v.is<JsonObjectConst>())
+		return r;
 	JsonObjectConst obj = v.as<JsonObjectConst>();
 	const char *col = obj["collection"].as<const char *>();
 	const char *id = obj["_id"].as<const char *>();
-	if (col) r.collection = col;
-	if (id) r.id = id;
+	if (col)
+		r.collection = col;
+	if (id)
+		r.id = id;
 	return r;
 }

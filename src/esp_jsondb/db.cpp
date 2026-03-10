@@ -17,7 +17,8 @@ DbStatus ESPJsonDB::ensureFsReady() {
 		return setLastError({DbStatusCode::InvalidArgument, "filesystem handle is null"});
 	}
 	if (_cfg.initFileSystem && _fs == &LittleFS) {
-		if (!LittleFS.begin(_cfg.formatOnFail, "/littlefs", _cfg.maxOpenFiles, _cfg.partitionLabel)) {
+		if (!LittleFS
+		         .begin(_cfg.formatOnFail, "/littlefs", _cfg.maxOpenFiles, _cfg.partitionLabel)) {
 			return setLastError({DbStatusCode::IoError, "LittleFS.begin failed"});
 		}
 	}
@@ -44,18 +45,23 @@ uint32_t ESPJsonDB::stackBytesToWords(uint32_t stackBytes) {
 
 bool ESPJsonDB::createTask(TaskFunction_t entry, const char *name, TaskHandle_t &outHandle) {
 	const uint32_t stackDepthWords = stackBytesToWords(_cfg.stackSize);
-	BaseType_t rc = xTaskCreatePinnedToCore(entry,
-											name,
-											stackDepthWords,
-											this,
-											_cfg.priority,
-											&outHandle,
-											_cfg.coreId);
+	BaseType_t rc = xTaskCreatePinnedToCore(
+	    entry,
+	    name,
+	    stackDepthWords,
+	    this,
+	    _cfg.priority,
+	    &outHandle,
+	    _cfg.coreId
+	);
 	return rc == pdPASS;
 }
 
-void ESPJsonDB::stopTask(TaskHandle_t &taskHandle, std::atomic<bool> &stopRequested, std::atomic<bool> &taskExited) {
-	if (taskHandle == nullptr) return;
+void ESPJsonDB::stopTask(
+    TaskHandle_t &taskHandle, std::atomic<bool> &stopRequested, std::atomic<bool> &taskExited
+) {
+	if (taskHandle == nullptr)
+		return;
 	stopRequested.store(true, std::memory_order_release);
 	const uint32_t startMs = millis();
 	while (!taskExited.load(std::memory_order_acquire)) {
@@ -95,7 +101,8 @@ void ESPJsonDB::deinit() {
 		stopSyncTaskUnlocked();
 
 		for (auto &kv : _cols) {
-			if (kv.second) kv.second->markAllRemoved();
+			if (kv.second)
+				kv.second->markAllRemoved();
 		}
 		_cols.clear();
 		_schemas.clear();
@@ -132,7 +139,9 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 		deinit();
 	}
 	if (!cfg.cacheEnabled) {
-		return setLastError({DbStatusCode::InvalidArgument, "cacheEnabled=false is no longer supported"});
+		return setLastError(
+		    {DbStatusCode::InvalidArgument, "cacheEnabled=false is no longer supported"}
+		);
 	}
 	_initialized.store(false, std::memory_order_release);
 	_baseDir = baseDir ? baseDir : std::string("/db");
@@ -154,7 +163,8 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 	_syncCompletedSeq.store(0, std::memory_order_release);
 	_fileUploadStopRequested.store(false, std::memory_order_release);
 	auto st = ensureFsReady();
-	if (!st.ok()) return st;
+	if (!st.ok())
+		return st;
 
 	{
 		FrLock lk(_mu);
@@ -218,8 +228,12 @@ void ESPJsonDB::onError(const std::function<void(const DbStatus &)> &cb) {
 
 void ESPJsonDB::onSync(const std::function<void()> &cb) {
 	// Wrap sync-only callback into event form
-	if (!cb) return;
-	onEvent([cb](DBEventType ev) { if (ev == DBEventType::Sync) cb(); });
+	if (!cb)
+		return;
+	onEvent([cb](DBEventType ev) {
+		if (ev == DBEventType::Sync)
+			cb();
+	});
 }
 
 DbStatus ESPJsonDB::dropCollection(const std::string &name) {
@@ -246,7 +260,8 @@ DbStatus ESPJsonDB::dropCollection(const std::string &name) {
 		auto dit = _diagCache.docsPerCollection.find(name);
 		if (dit != _diagCache.docsPerCollection.end()) {
 			_diagCache.docsPerCollection.erase(dit);
-			if (_diagCache.collections > 0) --_diagCache.collections;
+			if (_diagCache.collections > 0)
+				--_diagCache.collections;
 		}
 		_diagCache.lastRefreshMs = millis();
 	}
@@ -284,9 +299,11 @@ DbResult<Collection *> ESPJsonDB::collection(const std::string &name) {
 	{
 		FrLock lk(_mu);
 		auto sit = _schemas.find(name);
-		if (sit != _schemas.end()) sc = sit->second;
+		if (sit != _schemas.end())
+			sc = sit->second;
 	}
-	auto col = std::make_unique<Collection>(*this, name, sc, _baseDir, true, _cfg.usePSRAMBuffers, *_fs);
+	auto col =
+	    std::make_unique<Collection>(*this, name, sc, _baseDir, true, _cfg.usePSRAMBuffers, *_fs);
 	Collection *ptr = nullptr;
 	bool created = false;
 	{
@@ -295,7 +312,8 @@ DbResult<Collection *> ESPJsonDB::collection(const std::string &name) {
 		created = inserted;
 		ptr = it->second.get();
 	}
-	if (created) emitEvent(DBEventType::CollectionCreated);
+	if (created)
+		emitEvent(DBEventType::CollectionCreated);
 	res.status = setLastError({DbStatusCode::Ok, ""});
 	res.value = ptr;
 	return res;
@@ -330,7 +348,8 @@ DbResult<std::string> ESPJsonDB::create(const std::string &name, const JsonDocum
 	return create(name, doc.as<JsonObjectConst>());
 }
 
-DbResult<std::vector<std::string>> ESPJsonDB::createMany(const std::string &name, JsonArrayConst arr) {
+DbResult<std::vector<std::string>>
+ESPJsonDB::createMany(const std::string &name, JsonArrayConst arr) {
 	DbResult<std::vector<std::string>> res{};
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
@@ -340,10 +359,12 @@ DbResult<std::vector<std::string>> ESPJsonDB::createMany(const std::string &name
 	return cr.value->createMany(arr);
 }
 
-DbResult<std::vector<std::string>> ESPJsonDB::createMany(const std::string &name, const JsonDocument &arrDoc) {
+DbResult<std::vector<std::string>>
+ESPJsonDB::createMany(const std::string &name, const JsonDocument &arrDoc) {
 	if (!arrDoc.is<JsonArray>()) {
 		DbResult<std::vector<std::string>> res{};
-		res.status = setLastError({DbStatusCode::InvalidArgument, "document must be an array of objects"});
+		res.status =
+		    setLastError({DbStatusCode::InvalidArgument, "document must be an array of objects"});
 		return res;
 	}
 	return createMany(name, arrDoc.as<JsonArrayConst>());
@@ -358,8 +379,8 @@ DbResult<DocView> ESPJsonDB::findById(const std::string &name, const std::string
 	return cr.value->findById(id);
 }
 
-DbResult<std::vector<DocView>> ESPJsonDB::findMany(const std::string &name,
-												  std::function<bool(const DocView &)> pred) {
+DbResult<std::vector<DocView>>
+ESPJsonDB::findMany(const std::string &name, std::function<bool(const DocView &)> pred) {
 	DbResult<std::vector<DocView>> res{};
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
@@ -369,7 +390,8 @@ DbResult<std::vector<DocView>> ESPJsonDB::findMany(const std::string &name,
 	return cr.value->findMany(std::move(pred));
 }
 
-DbResult<DocView> ESPJsonDB::findOne(const std::string &name, std::function<bool(const DocView &)> pred) {
+DbResult<DocView>
+ESPJsonDB::findOne(const std::string &name, std::function<bool(const DocView &)> pred) {
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
 		// Return placeholder DocView; caller should check status before use
@@ -387,10 +409,12 @@ DbResult<DocView> ESPJsonDB::findOne(const std::string &name, const JsonDocument
 	return cr.value->findOne(filter);
 }
 
-DbStatus ESPJsonDB::updateOne(const std::string &name,
-							 std::function<bool(const DocView &)> pred,
-							 std::function<void(DocView &)> mutator,
-							 bool create) {
+DbStatus ESPJsonDB::updateOne(
+    const std::string &name,
+    std::function<bool(const DocView &)> pred,
+    std::function<void(DocView &)> mutator,
+    bool create
+) {
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
 		return cr.status;
@@ -398,10 +422,9 @@ DbStatus ESPJsonDB::updateOne(const std::string &name,
 	return cr.value->updateOne(std::move(pred), std::move(mutator), create);
 }
 
-DbStatus ESPJsonDB::updateOne(const std::string &name,
-							 const JsonDocument &filter,
-							 const JsonDocument &patch,
-							 bool create) {
+DbStatus ESPJsonDB::updateOne(
+    const std::string &name, const JsonDocument &filter, const JsonDocument &patch, bool create
+) {
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
 		return cr.status;
@@ -409,7 +432,9 @@ DbStatus ESPJsonDB::updateOne(const std::string &name,
 	return cr.value->updateOne(filter, patch, create);
 }
 
-DbStatus ESPJsonDB::updateById(const std::string &name, const std::string &id, std::function<void(DocView &)> mutator) {
+DbStatus ESPJsonDB::updateById(
+    const std::string &name, const std::string &id, std::function<void(DocView &)> mutator
+) {
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
 		return cr.status;
@@ -425,9 +450,9 @@ DbStatus ESPJsonDB::removeById(const std::string &name, const std::string &id) {
 	return cr.value->removeById(id);
 }
 
-DbResult<size_t> ESPJsonDB::updateMany(const std::string &collectionName,
-									  const JsonDocument &patch,
-									  const JsonDocument &filter) {
+DbResult<size_t> ESPJsonDB::updateMany(
+    const std::string &collectionName, const JsonDocument &patch, const JsonDocument &filter
+) {
 	DbResult<size_t> res{};
 	auto cr = collection(collectionName);
 	if (!cr.status.ok()) {
@@ -514,13 +539,15 @@ DbStatus ESPJsonDB::runSyncPass() {
 		if (!st.ok()) {
 			return setLastError(st);
 		}
-		if (changed) anyChanges = true;
+		if (changed)
+			anyChanges = true;
 	}
 	// Only refresh diagnostics and emit Sync if there were actual changes
 	if (anyChanges) {
 		emitEvent(DBEventType::Sync);
 	}
-	if (!finalStatus.ok()) return finalStatus;
+	if (!finalStatus.ok())
+		return finalStatus;
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
@@ -549,7 +576,8 @@ void ESPJsonDB::syncTaskLoop() {
 		(void)runSyncPass();
 		uint32_t completed = _syncCompletedSeq.load(std::memory_order_acquire);
 		while (completed < targetSeq &&
-			   !_syncCompletedSeq.compare_exchange_weak(completed, targetSeq, std::memory_order_acq_rel)) {
+		       !_syncCompletedSeq
+		            .compare_exchange_weak(completed, targetSeq, std::memory_order_acq_rel)) {
 		}
 	}
 	_syncTaskExited.store(true, std::memory_order_release);
@@ -557,7 +585,8 @@ void ESPJsonDB::syncTaskLoop() {
 }
 
 void ESPJsonDB::startSyncTaskUnlocked() {
-	if (_syncTask != nullptr) return;
+	if (_syncTask != nullptr)
+		return;
 	_syncStopRequested.store(false, std::memory_order_release);
 	_syncTaskExited.store(false, std::memory_order_release);
 	_syncKickRequested.store(false, std::memory_order_release);
@@ -572,16 +601,23 @@ void ESPJsonDB::startSyncTaskUnlocked() {
 void ESPJsonDB::stopSyncTaskUnlocked() {
 	stopTask(_syncTask, _syncStopRequested, _syncTaskExited);
 	_syncKickRequested.store(false, std::memory_order_release);
-	_syncCompletedSeq.store(_syncRequestSeq.load(std::memory_order_acquire), std::memory_order_release);
+	_syncCompletedSeq.store(
+	    _syncRequestSeq.load(std::memory_order_acquire),
+	    std::memory_order_release
+	);
 }
 
 namespace {
-static void listDirEntries(fs::FS &fsImpl, const std::string &dir, std::vector<std::pair<std::string, bool>> &out) {
+static void listDirEntries(
+    fs::FS &fsImpl, const std::string &dir, std::vector<std::pair<std::string, bool>> &out
+) {
 	FrLock fs(g_fsMutex);
-	if (!fsImpl.exists(dir.c_str())) return;
+	if (!fsImpl.exists(dir.c_str()))
+		return;
 	File d = fsImpl.open(dir.c_str());
 	if (!d || !d.isDirectory()) {
-		if (d) d.close();
+		if (d)
+			d.close();
 		return;
 	}
 	for (File f = d.openNextFile(); f; f = d.openNextFile()) {
@@ -600,7 +636,8 @@ static void removeTree(fs::FS &fsImpl, const std::string &path) {
 	bool isDir = false;
 	{
 		FrLock fs(g_fsMutex);
-		if (!fsImpl.exists(path.c_str())) return;
+		if (!fsImpl.exists(path.c_str()))
+			return;
 		File f = fsImpl.open(path.c_str());
 		if (f) {
 			isDir = f.isDirectory();
@@ -635,9 +672,11 @@ static void removeTree(fs::FS &fsImpl, const std::string &path) {
 
 DbStatus ESPJsonDB::removeCollectionDir(const std::string &name) {
 	std::string dir = _baseDir;
-	if (!dir.empty() && dir.back() != '/') dir += '/';
+	if (!dir.empty() && dir.back() != '/')
+		dir += '/';
 	dir += name;
-	if (_fs) removeTree(*_fs, dir);
+	if (_fs)
+		removeTree(*_fs, dir);
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
@@ -648,7 +687,8 @@ void ESPJsonDB::emitEvent(DBEventType ev) {
 		callbacks = _eventCbs; // copy snapshot
 	}
 	for (auto &fn : callbacks) {
-		if (fn) fn(ev);
+		if (fn)
+			fn(ev);
 	}
 }
 
@@ -659,14 +699,17 @@ void ESPJsonDB::emitError(const DbStatus &st) {
 		callbacks = _errorCbs; // copy snapshot
 	}
 	for (auto &fn : callbacks) {
-		if (fn) fn(st);
+		if (fn)
+			fn(st);
 	}
 }
 
 void ESPJsonDB::noteDocumentCreated(const std::string &collectionName, uint32_t count) {
-	if (collectionName.empty() || count == 0) return;
+	if (collectionName.empty() || count == 0)
+		return;
 	FrLock lk(_mu);
-	if (!_diagCachePrimed) return;
+	if (!_diagCachePrimed)
+		return;
 	uint32_t &docs = _diagCache.docsPerCollection[collectionName];
 	if (docs == 0) {
 		++_diagCache.collections;
@@ -676,14 +719,18 @@ void ESPJsonDB::noteDocumentCreated(const std::string &collectionName, uint32_t 
 }
 
 void ESPJsonDB::noteDocumentDeleted(const std::string &collectionName, uint32_t count) {
-	if (collectionName.empty() || count == 0) return;
+	if (collectionName.empty() || count == 0)
+		return;
 	FrLock lk(_mu);
-	if (!_diagCachePrimed) return;
+	if (!_diagCachePrimed)
+		return;
 	auto it = _diagCache.docsPerCollection.find(collectionName);
-	if (it == _diagCache.docsPerCollection.end()) return;
+	if (it == _diagCache.docsPerCollection.end())
+		return;
 	if (it->second <= count) {
 		_diagCache.docsPerCollection.erase(it);
-		if (_diagCache.collections > 0) --_diagCache.collections;
+		if (_diagCache.collections > 0)
+			--_diagCache.collections;
 	} else {
 		it->second -= count;
 	}
@@ -692,7 +739,8 @@ void ESPJsonDB::noteDocumentDeleted(const std::string &collectionName, uint32_t 
 
 DbStatus ESPJsonDB::preloadCollectionsFromFs() {
 	auto ready = ensureReady();
-	if (!ready.ok()) return setLastError(ready);
+	if (!ready.ok())
+		return setLastError(ready);
 	if (!_fs) {
 		return setLastError({DbStatusCode::IoError, "filesystem not ready"});
 	}
@@ -705,7 +753,8 @@ DbStatus ESPJsonDB::preloadCollectionsFromFs() {
 		}
 		File base = _fs->open(_baseDir.c_str());
 		if (!base || !base.isDirectory()) {
-			if (base) base.close();
+			if (base)
+				base.close();
 			return setLastError({DbStatusCode::IoError, "open base dir failed"});
 		}
 		for (File f = base.openNextFile(); f; f = base.openNextFile()) {
@@ -717,8 +766,10 @@ DbStatus ESPJsonDB::preloadCollectionsFromFs() {
 			f.close();
 			std::string name = raw.c_str();
 			auto slash = name.find_last_of('/');
-			if (slash != std::string::npos) name = name.substr(slash + 1);
-			if (name.empty() || isReservedName(name)) continue;
+			if (slash != std::string::npos)
+				name = name.substr(slash + 1);
+			if (name.empty() || isReservedName(name))
+				continue;
 			names.push_back(name);
 		}
 		base.close();
@@ -730,13 +781,17 @@ DbStatus ESPJsonDB::preloadCollectionsFromFs() {
 		Schema sc{};
 		{
 			FrLock lk(_mu);
-			if (_cols.find(name) != _cols.end()) continue;
+			if (_cols.find(name) != _cols.end())
+				continue;
 			auto sit = _schemas.find(name);
-			if (sit != _schemas.end()) sc = sit->second;
+			if (sit != _schemas.end())
+				sc = sit->second;
 		}
-		auto col = std::make_unique<Collection>(*this, name, sc, _baseDir, true, _cfg.usePSRAMBuffers, *_fs);
+		auto col = std::make_unique<
+		    Collection>(*this, name, sc, _baseDir, true, _cfg.usePSRAMBuffers, *_fs);
 		auto st = col->loadFromFs(_baseDir);
-		if (!st.ok()) return setLastError(st);
+		if (!st.ok())
+			return setLastError(st);
 		{
 			FrLock lk(_mu);
 			_cols.emplace(name, std::move(col));
@@ -763,7 +818,8 @@ JsonDocument ESPJsonDB::getDiag() {
 		cached = _diagCache.docsPerCollection; // copy
 		lastRefreshMs = _diagCache.lastRefreshMs;
 		for (auto &kv : _cols) {
-			if (isReservedName(kv.first)) continue;
+			if (isReservedName(kv.first))
+				continue;
 			live[kv.first] = kv.second ? static_cast<uint32_t>(kv.second->size()) : 0u;
 		}
 		cfgCopy = _cfg;
@@ -779,16 +835,20 @@ JsonDocument ESPJsonDB::getDiag() {
 		seen[kv.first] = true;
 	}
 	for (auto &kv : cached) {
-		if (isReservedName(kv.first)) continue;
-		if (seen.find(kv.first) != seen.end()) continue;
+		if (isReservedName(kv.first))
+			continue;
+		if (seen.find(kv.first) != seen.end())
+			continue;
 		per[kv.first.c_str()] = kv.second;
 	}
 
 	// Collections = number of unique keys
 	uint32_t collections = static_cast<uint32_t>(seen.size());
 	for (auto &kv : cached) {
-		if (isReservedName(kv.first)) continue;
-		if (seen.find(kv.first) == seen.end()) ++collections;
+		if (isReservedName(kv.first))
+			continue;
+		if (seen.find(kv.first) == seen.end())
+			++collections;
 	}
 	doc["collections"] = collections;
 	doc["lastRefreshMs"] = lastRefreshMs; // for visibility (optional)
@@ -824,7 +884,8 @@ DbStatus ESPJsonDB::dropAll() {
 
 		// Clear in-memory state
 		for (auto &kv : _cols) {
-			if (kv.second) kv.second->markAllRemoved();
+			if (kv.second)
+				kv.second->markAllRemoved();
 		}
 		_cols.clear();
 		_colsToDelete.clear();
@@ -854,11 +915,13 @@ std::vector<std::string> ESPJsonDB::getAllCollectionName() {
 	{
 		FrLock lk(_mu);
 		for (auto &kv : _cols) {
-			if (isReservedName(kv.first)) continue;
+			if (isReservedName(kv.first))
+				continue;
 			seen[kv.first] = true;
 		}
 		for (auto &kv : _diagCache.docsPerCollection) {
-			if (isReservedName(kv.first)) continue;
+			if (isReservedName(kv.first))
+				continue;
 			seen[kv.first] = true;
 		}
 	}
@@ -874,7 +937,9 @@ DbStatus ESPJsonDB::changeConfig(const ESPJsonDBConfig &cfg) {
 		return setLastError(ready);
 	}
 	if (!cfg.cacheEnabled) {
-		return setLastError({DbStatusCode::InvalidArgument, "cacheEnabled=false is no longer supported"});
+		return setLastError(
+		    {DbStatusCode::InvalidArgument, "cacheEnabled=false is no longer supported"}
+		);
 	}
 	bool doColdSync = cfg.coldSync;
 	// Stop existing task if running and apply new config
@@ -889,11 +954,13 @@ DbStatus ESPJsonDB::changeConfig(const ESPJsonDBConfig &cfg) {
 		_cfg = cfg;
 		_cfg.cacheEnabled = true;
 		for (auto &kv : _cols) {
-			if (kv.second) kv.second->setCacheEnabled(_cfg.cacheEnabled);
+			if (kv.second)
+				kv.second->setCacheEnabled(_cfg.cacheEnabled);
 		}
 	}
 	auto fsStatus = ensureFsReady();
-	if (!fsStatus.ok()) return fsStatus;
+	if (!fsStatus.ok())
+		return fsStatus;
 	if (doColdSync) {
 		auto preloadStatus = preloadCollectionsFromFs();
 		if (!preloadStatus.ok()) {
@@ -922,22 +989,26 @@ JsonDocument ESPJsonDB::getSnapshot() {
 	std::vector<std::pair<std::string, bool>> colDirs;
 	listDirEntries(*_fs, _baseDir, colDirs);
 	for (auto &cd : colDirs) {
-		if (!cd.second) continue; // not a directory
+		if (!cd.second)
+			continue; // not a directory
 		const std::string &full = cd.first;
 		auto p = full.find_last_of('/');
 		std::string colName = (p == std::string::npos) ? full : full.substr(p + 1);
-		if (isReservedName(colName)) continue;
+		if (isReservedName(colName))
+			continue;
 
 		// Iterate files in collection dir
 		std::vector<std::pair<std::string, bool>> files;
 		listDirEntries(*_fs, full, files);
 		JsonArray arr = colsObj[colName.c_str()].to<JsonArray>();
 		for (auto &fe : files) {
-			if (fe.second) continue; // skip subdirectories
+			if (fe.second)
+				continue; // skip subdirectories
 			const std::string &fpath = fe.first;
 			// expect <id>.mp
 			auto dot = fpath.find_last_of('.');
-			if (dot == std::string::npos || fpath.substr(dot) != ".mp") continue;
+			if (dot == std::string::npos || fpath.substr(dot) != ".mp")
+				continue;
 			auto slash = fpath.find_last_of('/');
 			std::string fname = (slash == std::string::npos) ? fpath : fpath.substr(slash + 1);
 			std::string id = fname.substr(0, fname.size() - 3);
@@ -955,7 +1026,8 @@ JsonDocument ESPJsonDB::getSnapshot() {
 					derr = DeserializationError::Code::InvalidInput;
 				}
 			}
-			if (derr) continue; // skip unreadable
+			if (derr)
+				continue; // skip unreadable
 			JsonObject obj = arr.add<JsonObject>();
 			obj.set(tmp.as<JsonObjectConst>());
 			obj["_id"] = id.c_str();
@@ -977,19 +1049,24 @@ DbStatus ESPJsonDB::restoreFromSnapshot(const JsonDocument &snapshot) {
 
 	// Drop everything first
 	auto st = dropAll();
-	if (!st.ok()) return st;
+	if (!st.ok())
+		return st;
 
 	// For each collection, recreate documents
 	for (auto kv : cols) {
 		const char *colName = kv.key().c_str();
-		if (!colName || !*colName) continue;
-		if (isReservedName(colName)) continue;
+		if (!colName || !*colName)
+			continue;
+		if (isReservedName(colName))
+			continue;
 		JsonArrayConst arr = kv.value().as<JsonArrayConst>();
-		if (arr.isNull()) continue;
+		if (arr.isNull())
+			continue;
 
 		// Ensure directory exists
 		std::string dir = _baseDir;
-		if (!dir.empty() && dir.back() != '/') dir += '/';
+		if (!dir.empty() && dir.back() != '/')
+			dir += '/';
 		dir += colName;
 		{
 			FrLock fs(g_fsMutex);
@@ -997,8 +1074,10 @@ DbStatus ESPJsonDB::restoreFromSnapshot(const JsonDocument &snapshot) {
 		}
 
 		for (JsonObjectConst obj : arr) {
-			const char *id = obj["_id"].is<const char *>() ? obj["_id"].as<const char *>() : nullptr;
-			if (!id || !*id) continue;
+			const char *id =
+			    obj["_id"].is<const char *>() ? obj["_id"].as<const char *>() : nullptr;
+			if (!id || !*id)
+				continue;
 
 			// Copy object without _id into a temp doc
 			JsonDocument tmp;
@@ -1010,7 +1089,8 @@ DbStatus ESPJsonDB::restoreFromSnapshot(const JsonDocument &snapshot) {
 			JsonDbVector<uint8_t> bytes{JsonDbAllocator<uint8_t>(_cfg.usePSRAMBuffers)};
 			bytes.resize(sz);
 			size_t written = serializeMsgPack(tmp, bytes.data(), bytes.size());
-			if (written != sz) return setLastError({DbStatusCode::IoError, "serialize msgpack failed"});
+			if (written != sz)
+				return setLastError({DbStatusCode::IoError, "serialize msgpack failed"});
 
 			// Write file atomically
 			std::string finalPath = dir + "/" + std::string(id) + ".mp";
@@ -1018,7 +1098,8 @@ DbStatus ESPJsonDB::restoreFromSnapshot(const JsonDocument &snapshot) {
 			{
 				FrLock fs(g_fsMutex);
 				File f = _fs->open(tmpPath.c_str(), FILE_WRITE);
-				if (!f) return setLastError({DbStatusCode::IoError, "open for write failed"});
+				if (!f)
+					return setLastError({DbStatusCode::IoError, "open for write failed"});
 				WriteBufferingStream bufferedFile(f, 256);
 				size_t w = bufferedFile.write(bytes.data(), bytes.size());
 				bufferedFile.flush();
@@ -1043,7 +1124,8 @@ DbStatus ESPJsonDB::restoreFromSnapshot(const JsonDocument &snapshot) {
 
 // Private: expensive FS scan; called on init and after successful sync
 void ESPJsonDB::refreshDiagFromFs() {
-	if (!_fs) return;
+	if (!_fs)
+		return;
 	std::map<std::string, uint32_t> perCol;
 	uint32_t colCount = 0;
 	{
@@ -1061,7 +1143,8 @@ void ESPJsonDB::refreshDiagFromFs() {
 					String colName = f.name();
 					std::string cname = colName.c_str();
 					auto slash = cname.find_last_of('/');
-					if (slash != std::string::npos) cname = cname.substr(slash + 1);
+					if (slash != std::string::npos)
+						cname = cname.substr(slash + 1);
 					if (isReservedName(cname)) {
 						f.close();
 						continue;
@@ -1070,7 +1153,8 @@ void ESPJsonDB::refreshDiagFromFs() {
 
 					// Count .mp files in collection dir
 					std::string dirPath = _baseDir;
-					if (!dirPath.empty() && dirPath.back() != '/') dirPath += '/';
+					if (!dirPath.empty() && dirPath.back() != '/')
+						dirPath += '/';
 					dirPath += cname;
 					File colDir = _fs->open(dirPath.c_str());
 					if (!colDir || !colDir.isDirectory()) {
@@ -1086,7 +1170,8 @@ void ESPJsonDB::refreshDiagFromFs() {
 						String fn = df.name();
 						df.close();
 						std::string n = fn.c_str();
-						if (n.size() >= 3 && n.substr(n.size() - 3) == ".mp") ++cnt;
+						if (n.size() >= 3 && n.substr(n.size() - 3) == ".mp")
+							++cnt;
 					}
 					colDir.close();
 					// Only include collections that currently have at least one document file

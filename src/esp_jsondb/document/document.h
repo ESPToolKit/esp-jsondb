@@ -5,9 +5,9 @@
 
 #include <cstdint>
 #include <ctime>
+#include <functional>
 #include <memory>
 #include <string>
-#include <functional>
 #include <vector>
 
 #include "../utils/dbTypes.h"
@@ -27,7 +27,8 @@ class ESPJsonDB;
 #if ESP_JSONDB_HAS_JSONDOC_ALLOCATOR
 class JsonDbDocAllocator : public ArduinoJson::Allocator {
   public:
-	explicit JsonDbDocAllocator(bool usePSRAMBuffers = false) : _usePSRAMBuffers(usePSRAMBuffers) {}
+	explicit JsonDbDocAllocator(bool usePSRAMBuffers = false) : _usePSRAMBuffers(usePSRAMBuffers) {
+	}
 
 	void *allocate(size_t size) override {
 		return jsondb_allocator_detail::allocate(size, _usePSRAMBuffers);
@@ -57,22 +58,23 @@ class JsonDbDocAllocator : public ArduinoJson::Allocator {
  * The database does not manage or check time synchronization.
  */
 struct DocumentMeta {
-    uint32_t createdAt = 0; // UTC milliseconds
-    uint32_t updatedAt = 0; // UTC milliseconds
-    std::string id;			// 24-hex ObjectId
-    bool dirty = false;		// needs flush to FS
-    bool removed = false;     // logically deleted; DocView::commit should fail
+	uint32_t createdAt = 0; // UTC milliseconds
+	uint32_t updatedAt = 0; // UTC milliseconds
+	std::string id;         // 24-hex ObjectId
+	bool dirty = false;     // needs flush to FS
+	bool removed = false;   // logically deleted; DocView::commit should fail
 };
 
 // Internal storage unit (owned by Collection)
 struct DocumentRecord {
 	explicit DocumentRecord(bool usePSRAMBuffers = false)
-		: msgpack(JsonDbAllocator<uint8_t>(usePSRAMBuffers)) {}
+	    : msgpack(JsonDbAllocator<uint8_t>(usePSRAMBuffers)) {
+	}
 
 	DocumentMeta meta;
 	JsonDbVector<uint8_t> msgpack; // authoritative source
-								  // Optional decoded cache; created on demand and freed when view destroyed
-								  // Decoding/encoding uses ArduinoJson.
+	                               // Optional decoded cache; created on demand and freed when view
+	                               // destroyed Decoding/encoding uses ArduinoJson.
 };
 
 // A short-lived, RAII view for convenient operator[] access
@@ -80,12 +82,14 @@ struct DocumentRecord {
 // - On commit(): reserialize to MessagePack and mark dirty
 class DocView {
   public:
-	DocView(std::shared_ptr<DocumentRecord> rec,
-			const Schema *schema = nullptr,
-			FrMutex *mu = nullptr,
-			ESPJsonDB *db = nullptr,
-			std::function<DbStatus(const std::shared_ptr<DocumentRecord>&)> commitSink = nullptr,
-			bool usePSRAMBuffers = false);
+	DocView(
+	    std::shared_ptr<DocumentRecord> rec,
+	    const Schema *schema = nullptr,
+	    FrMutex *mu = nullptr,
+	    ESPJsonDB *db = nullptr,
+	    std::function<DbStatus(const std::shared_ptr<DocumentRecord> &)> commitSink = nullptr,
+	    bool usePSRAMBuffers = false
+	);
 	~DocView(); // optional auto-commit if enabled
 
 	// non-copyable, movable
@@ -107,8 +111,7 @@ class DocView {
 	JsonObjectConst asObjectConst() const;
 
 	// Convenience: read a field or return a default if absent/invalid
-	template <typename T>
-	T getOr(const char *field, T def) const;
+	template <typename T> T getOr(const char *field, T def) const;
 
 	// DocRef helpers
 	DocRef getRef(const char *field) const;
@@ -116,7 +119,7 @@ class DocView {
 
 	// persist changes back to record (MsgPack)
 	DbStatus commit(); // serialize -> msgpack; set dirty+updatedAt only if bytes changed
-	void discard();	   // drop changes, keep msgpack
+	void discard();    // drop changes, keep msgpack
 
 	const DocumentMeta &meta() const {
 		static const DocumentMeta kEmptyMeta{};
@@ -130,7 +133,7 @@ class DocView {
 	bool _dirtyLocally = false;
 	FrMutex *_mu = nullptr; // optional: used when called without external lock
 	ESPJsonDB *_db = nullptr;
-	std::function<DbStatus(const std::shared_ptr<DocumentRecord>&)> _commitSink;
+	std::function<DbStatus(const std::shared_ptr<DocumentRecord> &)> _commitSink;
 	bool _usePSRAMBuffers = false;
 #if ESP_JSONDB_HAS_JSONDOC_ALLOCATOR
 	JsonDbDocAllocator _docAllocator;
@@ -140,15 +143,17 @@ class DocView {
 	DbStatus recordStatus(const DbStatus &st) const;
 };
 
-template <typename T>
-T DocView::getOr(const char *field, T def) const {
+template <typename T> T DocView::getOr(const char *field, T def) const {
 	if (!_doc) {
 		// Need to const_cast to decode lazily
 		auto self = const_cast<DocView *>(this);
-		if (!self->decode().ok()) return def;
+		if (!self->decode().ok())
+			return def;
 	}
 	JsonVariantConst v = _doc->as<JsonVariantConst>()[field];
-	if (v.isNull()) return def;
-	if (!v.template is<T>()) return def;
+	if (v.isNull())
+		return def;
+	if (!v.template is<T>())
+		return def;
 	return v.as<T>();
 }

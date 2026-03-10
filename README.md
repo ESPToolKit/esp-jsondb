@@ -161,6 +161,13 @@ Stack sizes are expressed in bytes.
 ## Tests
 An integration harness (`test/`) runs CRUD, bulk, schema, reference, and diagnostic scenarios via the `DbTester` class. Build it as a PlatformIO test or ESP-IDF component (include `test/dbTest.cpp` in your project) and run it on hardware to validate changes. Contributions that expand automated coverage are welcome.
 
+## Formatting Baseline
+
+This repository follows the firmware formatting baseline from `esptoolkit-template`:
+- `.clang-format` is the source of truth for C/C++/INO layout.
+- `.editorconfig` enforces tabs (`tab_width = 4`), LF endings, and final newline.
+- Format all tracked firmware sources with `bash scripts/format_cpp.sh`.
+
 ## License
 MIT — see [LICENSE.md](LICENSE.md).
 

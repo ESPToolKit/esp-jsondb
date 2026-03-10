@@ -1,0 +1,12 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Format Firmware Sources",
+            "type": "shell",
+            "command": "bash ${workspaceFolder}/scripts/format_cpp.sh",
+            "group": "build",
+            "problemMatcher": []
+        }
+    ]
+}

@@ -1,5 +1,6 @@
 {
     "files.associations": {
+        "*.ino": "cpp",
         "array": "cpp",
         "deque": "cpp",
         "string": "cpp",
@@ -8,5 +9,30 @@
         "string_view": "cpp",
         "initializer_list": "cpp",
         "cstdint": "cpp"
+    },
+    "editor.defaultFormatter": "xaver.clang-format",
+    "C_Cpp.formatting": "Disabled",
+    "clang-format.style": "file",
+    "clang-format.executable": "${workspaceRoot}/.vscode/bin/clang-format",
+    "[cpp]": {
+        "editor.defaultFormatter": "xaver.clang-format",
+        "editor.detectIndentation": false,
+        "editor.insertSpaces": false,
+        "editor.tabSize": 4,
+        "editor.formatOnSave": true
+    },
+    "[c]": {
+        "editor.defaultFormatter": "xaver.clang-format",
+        "editor.detectIndentation": false,
+        "editor.insertSpaces": false,
+        "editor.tabSize": 4,
+        "editor.formatOnSave": true
+    },
+    "[arduino]": {
+        "editor.defaultFormatter": "xaver.clang-format",
+        "editor.detectIndentation": false,
+        "editor.insertSpaces": false,
+        "editor.tabSize": 4,
+        "editor.formatOnSave": true
     }
 }

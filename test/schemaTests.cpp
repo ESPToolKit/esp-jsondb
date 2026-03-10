@@ -24,10 +24,7 @@ void DbTester::schemaFailDocCreate() {
 	newUser["thing"] = "notAPassword";
 	auto result = db.create("users", newUser.as<JsonObjectConst>());
 	if (!result.status.ok()) {
-		ESP_LOGE(
-			DB_TESTER_TAG,
-			"Failed to add new user to DB. Error: %s",
-			result.status.message);
+		ESP_LOGE(DB_TESTER_TAG, "Failed to add new user to DB. Error: %s", result.status.message);
 	} else {
 		ESP_LOGI(DB_TESTER_TAG, "New user created");
 	}
@@ -43,10 +40,7 @@ void DbTester::schemaSuccessDocCreate() {
 	newUser["password"] = "aSecureHashedPassword";
 	auto result = db.create("users", newUser.as<JsonObjectConst>());
 	if (!result.status.ok()) {
-		ESP_LOGE(
-			DB_TESTER_TAG,
-			"Failed to add new user to DB. Error: %s",
-			result.status.message);
+		ESP_LOGE(DB_TESTER_TAG, "Failed to add new user to DB. Error: %s", result.status.message);
 	} else {
 		ESP_LOGI(DB_TESTER_TAG, "New user created");
 	}
@@ -54,13 +48,13 @@ void DbTester::schemaSuccessDocCreate() {
 
 void DbTester::schemaFailWithTypesDocCreate() {
 	userSchema.fields = {
-		// key - type - default value
-		{"email", FieldType::String, "a@b.c"},
-		{"username", FieldType::String},
-		{"role", FieldType::String, "user"},
-		{"password", FieldType::String},
-		{"age", FieldType::Int},
-		{"height", FieldType::Int},
+	    // key - type - default value
+	    {"email", FieldType::String, "a@b.c"},
+	    {"username", FieldType::String},
+	    {"role", FieldType::String, "user"},
+	    {"password", FieldType::String},
+	    {"age", FieldType::Int},
+	    {"height", FieldType::Int},
 	};
 
 	JsonDocument newUser;
@@ -69,10 +63,7 @@ void DbTester::schemaFailWithTypesDocCreate() {
 	newUser["age"] = "cya";
 	auto result = db.create("users", newUser.as<JsonObjectConst>());
 	if (!result.status.ok()) {
-		ESP_LOGE(
-			DB_TESTER_TAG,
-			"Failed to add new user to DB. Error: %s",
-			result.status.message);
+		ESP_LOGE(DB_TESTER_TAG, "Failed to add new user to DB. Error: %s", result.status.message);
 	} else {
 		ESP_LOGI(DB_TESTER_TAG, "New user created");
 	}
@@ -85,10 +76,7 @@ void DbTester::schemaSuccessWithTypesDocCreate() {
 	newUser["age"] = 18;
 	auto result = db.create("users", newUser.as<JsonObjectConst>());
 	if (!result.status.ok()) {
-		ESP_LOGE(
-			DB_TESTER_TAG,
-			"Failed to add new user to DB. Error: %s",
-			result.status.message);
+		ESP_LOGE(DB_TESTER_TAG, "Failed to add new user to DB. Error: %s", result.status.message);
 	} else {
 		ESP_LOGI(DB_TESTER_TAG, "New user created");
 	}
@@ -99,8 +87,8 @@ void DbTester::schemaFailDocUpdate() {
 	// Start from a clean collection and register a strict schema
 	db.dropCollection("users");
 	userSchema.fields = {
-		{"username", FieldType::String},
-		{"password", FieldType::String},
+	    {"username", FieldType::String},
+	    {"password", FieldType::String},
 	};
 	userSchema.validate = usersValidate;
 	db.registerSchema("users", userSchema);
@@ -112,35 +100,29 @@ void DbTester::schemaFailDocUpdate() {
 	auto createRes = db.create("users", newUser.as<JsonObjectConst>());
 	if (!createRes.status.ok()) {
 		ESP_LOGE(
-			DB_TESTER_TAG,
-			"Failed to add new user to DB. Error: %s",
-			createRes.status.message);
+		    DB_TESTER_TAG,
+		    "Failed to add new user to DB. Error: %s",
+		    createRes.status.message
+		);
 	} else {
 		ESP_LOGI(DB_TESTER_TAG, "New user created");
 	}
-    const std::string userId = createRes.value;
+	const std::string userId = createRes.value;
 
 	// Attempt to update with invalid data (wrong type for password)
-    DbStatus updateStatus = db.updateById("users", userId, [](DocView &doc) {
-        doc["password"].set(123);
-    });
-    if (!updateStatus.ok()) {
-        ESP_LOGE(
-            DB_TESTER_TAG,
-            "Failed to update user document. Error: %s",
-            updateStatus.message);
-    } else {
-        ESP_LOGI(DB_TESTER_TAG, "User document updated");
-    }
+	DbStatus updateStatus =
+	    db.updateById("users", userId, [](DocView &doc) { doc["password"].set(123); });
+	if (!updateStatus.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "Failed to update user document. Error: %s", updateStatus.message);
+	} else {
+		ESP_LOGI(DB_TESTER_TAG, "User document updated");
+	}
 
 	// Verify the original document remains unchanged
-    auto findRes = db.findById("users", userId);
+	auto findRes = db.findById("users", userId);
 
 	if (!findRes.status.ok()) {
-		ESP_LOGE(
-			DB_TESTER_TAG,
-			"Failed to find user document. Error: %s",
-			findRes.status.message);
+		ESP_LOGE(DB_TESTER_TAG, "Failed to find user document. Error: %s", findRes.status.message);
 	} else {
 		ESP_LOGI(DB_TESTER_TAG, "User document found");
 	}

@@ -43,7 +43,9 @@ struct Schema {
 
 	Schema() = default;
 
-	inline bool hasValidate() const { return validate != nullptr || preSave != nullptr || !fields.empty(); }
+	inline bool hasValidate() const {
+		return validate != nullptr || preSave != nullptr || !fields.empty();
+	}
 
 	inline void applyDefaults(JsonObject obj) const {
 		for (const auto &f : fields) {
@@ -60,7 +62,8 @@ struct Schema {
 					obj[f.name] = atof(f.defaultValue);
 					break;
 				case FieldType::Bool:
-					obj[f.name] = (strcmp(f.defaultValue, "true") == 0 || strcmp(f.defaultValue, "1") == 0);
+					obj[f.name] =
+					    (strcmp(f.defaultValue, "true") == 0 || strcmp(f.defaultValue, "1") == 0);
 					break;
 				case FieldType::Object:
 					obj[f.name].to<JsonObject>();
@@ -79,22 +82,28 @@ struct Schema {
 			if (!v.isNull()) {
 				switch (f.type) {
 				case FieldType::String:
-					if (!v.is<const char *>() && !v.is<std::string>() && !v.is<String>()) return false;
+					if (!v.is<const char *>() && !v.is<std::string>() && !v.is<String>())
+						return false;
 					break;
 				case FieldType::Int:
-					if (!v.is<int>()) return false;
+					if (!v.is<int>())
+						return false;
 					break;
 				case FieldType::Float:
-					if (!v.is<float>()) return false;
+					if (!v.is<float>())
+						return false;
 					break;
 				case FieldType::Bool:
-					if (!v.is<bool>()) return false;
+					if (!v.is<bool>())
+						return false;
 					break;
 				case FieldType::Object:
-					if (!v.is<JsonObjectConst>()) return false;
+					if (!v.is<JsonObjectConst>())
+						return false;
 					break;
 				case FieldType::Array:
-					if (!v.is<JsonArrayConst>()) return false;
+					if (!v.is<JsonArrayConst>())
+						return false;
 					break;
 				}
 			}
@@ -104,19 +113,25 @@ struct Schema {
 
 	inline ValidationError runPreSave(JsonObject &o) const {
 		applyDefaults(o);
-		if (!validateTypes(o)) return {false, "schema: invalid type"};
-		if (preSave) return preSave(o);
-		if (validate) return validate(o);
+		if (!validateTypes(o))
+			return {false, "schema: invalid type"};
+		if (preSave)
+			return preSave(o);
+		if (validate)
+			return validate(o);
 		return {true, ""};
 	}
 
 	inline ValidationError runValidate(const JsonObjectConst &o) const {
-		if (!validateTypes(o)) return {false, "schema: invalid type"};
-		if (validate) return validate(o);
+		if (!validateTypes(o))
+			return {false, "schema: invalid type"};
+		if (validate)
+			return validate(o);
 		return {true, ""};
 	}
 
 	inline void runPostLoad(JsonObject &o) const {
-		if (postLoad) postLoad(o);
+		if (postLoad)
+			postLoad(o);
 	}
 };

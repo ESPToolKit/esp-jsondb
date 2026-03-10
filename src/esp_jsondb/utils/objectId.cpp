@@ -3,7 +3,8 @@
 namespace {
 static uint32_t readEpochSeconds() {
 	time_t now = time(nullptr);
-	if (now < 0) now = 0;
+	if (now < 0)
+		now = 0;
 	return static_cast<uint32_t>(now);
 }
 
@@ -15,10 +16,14 @@ static void writeU32BE(uint8_t *out, uint32_t v) {
 }
 
 static uint8_t hexNibble(char c, bool *ok) {
-	if (c >= '0' && c <= '9') return static_cast<uint8_t>(c - '0');
-	if (c >= 'a' && c <= 'f') return static_cast<uint8_t>(10 + (c - 'a'));
-	if (c >= 'A' && c <= 'F') return static_cast<uint8_t>(10 + (c - 'A'));
-	if (ok) *ok = false;
+	if (c >= '0' && c <= '9')
+		return static_cast<uint8_t>(c - '0');
+	if (c >= 'a' && c <= 'f')
+		return static_cast<uint8_t>(10 + (c - 'a'));
+	if (c >= 'A' && c <= 'F')
+		return static_cast<uint8_t>(10 + (c - 'A'));
+	if (ok)
+		*ok = false;
 	return 0;
 }
 } // namespace
@@ -64,10 +69,12 @@ std::string ObjectId::toHex() const {
 }
 
 ObjectId ObjectId::fromHex(const std::string &hex, bool *ok) {
-	if (ok) *ok = true;
+	if (ok)
+		*ok = true;
 	ObjectId out;
 	if (hex.size() != 24) {
-		if (ok) *ok = false;
+		if (ok)
+			*ok = false;
 		return out;
 	}
 	for (size_t i = 0; i < 12; ++i) {
@@ -82,6 +89,7 @@ uint32_t ObjectId::nextCounter() {
 	static uint32_t c = 0;
 	// Simple increment; wrap at 24 bits
 	c = (c + 1) & 0xFFFFFFu;
-	if (c == 0) c = 1; // avoid 0
+	if (c == 0)
+		c = 1; // avoid 0
 	return c;
 }

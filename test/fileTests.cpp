@@ -63,7 +63,11 @@ void DbTester::fileStorageTest() {
 		return;
 	}
 
-	auto copiedFromPath = db.writeFileFromPath("bin/copied_from_path.bin", "/test_db/_files/bin/source.bin", streamOpts);
+	auto copiedFromPath = db.writeFileFromPath(
+	    "bin/copied_from_path.bin",
+	    "/test_db/_files/bin/source.bin",
+	    streamOpts
+	);
 	if (!copiedFromPath.ok()) {
 		ESP_LOGE(DB_TESTER_TAG, "writeFileFromPath failed: %s", copiedFromPath.message);
 		return;
@@ -83,8 +87,10 @@ void DbTester::fileStorageTest() {
 	syncCtx.data = binaryPayload.data();
 	syncCtx.size = binaryPayload.size();
 
-	auto pullCb = [&syncCtx](size_t requested, uint8_t *buffer, size_t &produced, bool &eof) -> DbStatus {
-		if (!buffer) return {DbStatusCode::InvalidArgument, "buffer is null"};
+	auto pullCb =
+	    [&syncCtx](size_t requested, uint8_t *buffer, size_t &produced, bool &eof) -> DbStatus {
+		if (!buffer)
+			return {DbStatusCode::InvalidArgument, "buffer is null"};
 		if (syncCtx.offset >= syncCtx.size) {
 			produced = 0;
 			eof = true;
@@ -111,20 +117,22 @@ void DbTester::fileStorageTest() {
 		return;
 	}
 
-	auto sourceNotFound = db.writeFileFromPath("bin/not_created.bin", "/test_db/_files/bin/missing.bin", streamOpts);
+	auto sourceNotFound =
+	    db.writeFileFromPath("bin/not_created.bin", "/test_db/_files/bin/missing.bin", streamOpts);
 	if (sourceNotFound.ok() || sourceNotFound.code != DbStatusCode::NotFound) {
 		ESP_LOGE(DB_TESTER_TAG, "writeFileFromPath missing-source check failed");
 		return;
 	}
 
 	auto invalidProducer = db.writeFileStream(
-		"bin/invalid_callback.bin",
-		[](size_t requested, uint8_t *, size_t &produced, bool &eof) -> DbStatus {
-			produced = requested + 1;
-			eof = false;
-			return {DbStatusCode::Ok, ""};
-		},
-		streamOpts);
+	    "bin/invalid_callback.bin",
+	    [](size_t requested, uint8_t *, size_t &produced, bool &eof) -> DbStatus {
+		    produced = requested + 1;
+		    eof = false;
+		    return {DbStatusCode::Ok, ""};
+	    },
+	    streamOpts
+	);
 	if (invalidProducer.ok() || invalidProducer.code != DbStatusCode::InvalidArgument) {
 		ESP_LOGE(DB_TESTER_TAG, "writeFileStream invalid producer check failed");
 		return;
@@ -176,8 +184,10 @@ void DbTester::asyncFileUploadTest() {
 	volatile bool doneOk = false;
 	volatile size_t doneBytes = 0;
 
-	DbFileUploadPullCb pullCb = [&ctx](size_t requested, uint8_t *buffer, size_t &produced, bool &eof) -> DbStatus {
-		if (!buffer) return {DbStatusCode::InvalidArgument, "buffer is null"};
+	DbFileUploadPullCb pullCb =
+	    [&ctx](size_t requested, uint8_t *buffer, size_t &produced, bool &eof) -> DbStatus {
+		if (!buffer)
+			return {DbStatusCode::InvalidArgument, "buffer is null"};
 		if (ctx.offset >= ctx.size) {
 			produced = 0;
 			eof = true;
@@ -192,11 +202,12 @@ void DbTester::asyncFileUploadTest() {
 		return {DbStatusCode::Ok, ""};
 	};
 
-	DbFileUploadDoneCb doneCb = [&done, &doneOk, &doneBytes](uint32_t, const DbStatus &st, size_t bytesWritten) {
-		doneOk = st.ok();
-		doneBytes = bytesWritten;
-		done = true;
-	};
+	DbFileUploadDoneCb doneCb =
+	    [&done, &doneOk, &doneBytes](uint32_t, const DbStatus &st, size_t bytesWritten) {
+		    doneOk = st.ok();
+		    doneBytes = bytesWritten;
+		    done = true;
+	    };
 
 	ESPJsonDBFileOptions opts;
 	opts.overwrite = true;
@@ -263,8 +274,10 @@ void DbTester::asyncFileUploadRetentionBoundTest() {
 		volatile bool doneOk = false;
 		volatile size_t doneBytes = 0;
 
-		DbFileUploadPullCb pullCb = [&ctx](size_t requested, uint8_t *buffer, size_t &produced, bool &eof) -> DbStatus {
-			if (!buffer) return {DbStatusCode::InvalidArgument, "buffer is null"};
+		DbFileUploadPullCb pullCb =
+		    [&ctx](size_t requested, uint8_t *buffer, size_t &produced, bool &eof) -> DbStatus {
+			if (!buffer)
+				return {DbStatusCode::InvalidArgument, "buffer is null"};
 			if (ctx.offset >= ctx.size) {
 				produced = 0;
 				eof = true;
@@ -279,18 +292,22 @@ void DbTester::asyncFileUploadRetentionBoundTest() {
 			return {DbStatusCode::Ok, ""};
 		};
 
-		DbFileUploadDoneCb doneCb = [&done, &doneOk, &doneBytes](uint32_t, const DbStatus &st, size_t bytesWritten) {
-			doneOk = st.ok();
-			doneBytes = bytesWritten;
-			done = true;
-		};
+		DbFileUploadDoneCb doneCb =
+		    [&done, &doneOk, &doneBytes](uint32_t, const DbStatus &st, size_t bytesWritten) {
+			    doneOk = st.ok();
+			    doneBytes = bytesWritten;
+			    done = true;
+		    };
 
 		const std::string path = "async/retention_" + std::to_string(i) + ".bin";
 		auto asyncRes = db.writeFileStreamAsync(path, pullCb, opts, doneCb);
 		if (!asyncRes.status.ok()) {
-			ESP_LOGE(DB_TESTER_TAG, "Retention test upload start failed at %u: %s",
-					 static_cast<unsigned>(i),
-					 asyncRes.status.message);
+			ESP_LOGE(
+			    DB_TESTER_TAG,
+			    "Retention test upload start failed at %u: %s",
+			    static_cast<unsigned>(i),
+			    asyncRes.status.message
+			);
 			return;
 		}
 		uploadIds.push_back(asyncRes.value);
@@ -300,13 +317,21 @@ void DbTester::asyncFileUploadRetentionBoundTest() {
 			delay(5);
 		}
 		if (!done || !doneOk || doneBytes != payload.size()) {
-			ESP_LOGE(DB_TESTER_TAG, "Retention test upload completion mismatch at %u", static_cast<unsigned>(i));
+			ESP_LOGE(
+			    DB_TESTER_TAG,
+			    "Retention test upload completion mismatch at %u",
+			    static_cast<unsigned>(i)
+			);
 			return;
 		}
 
 		auto latestState = db.getFileUploadState(asyncRes.value);
 		if (!latestState.status.ok() || latestState.value != DbFileUploadState::Completed) {
-			ESP_LOGE(DB_TESTER_TAG, "Retention test latest upload state mismatch at %u", static_cast<unsigned>(i));
+			ESP_LOGE(
+			    DB_TESTER_TAG,
+			    "Retention test latest upload state mismatch at %u",
+			    static_cast<unsigned>(i)
+			);
 			return;
 		}
 
