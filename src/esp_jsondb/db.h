@@ -16,6 +16,7 @@
 #include "collection/collection.h"
 #include "utils/dbTypes.h"
 #include "utils/fr_mutex.h"
+#include "utils/jsondb_allocator.h"
 #include "utils/schema.h"
 #include <ArduinoJson.h>
 
@@ -210,13 +211,22 @@ class ESPJsonDB {
 	void noteDocumentDeleted(const std::string &collectionName, uint32_t count = 1);
 
   private:
+	using CollectionMap = JsonDbMap<std::string, std::unique_ptr<Collection>>;
+	using SchemaMap = JsonDbMap<std::string, Schema>;
+	using StringBoolMap = JsonDbMap<std::string, bool>;
+	using StringUint32Map = JsonDbMap<std::string, uint32_t>;
+	using StringVector = JsonDbVector<std::string>;
+	using UploadIdDeque = JsonDbDeque<uint32_t>;
+	using EventCallbackVector = JsonDbVector<std::function<void(DBEventType)>>;
+	using ErrorCallbackVector = JsonDbVector<std::function<void(const DbStatus &)>>;
+
 	std::string _baseDir;
 	ESPJsonDBConfig _cfg;
-	std::map<std::string, std::unique_ptr<Collection>> _cols;
-	std::map<std::string, Schema> _schemas;
-	std::vector<std::string> _colsToDelete;
-	std::vector<std::function<void(DBEventType)>> _eventCbs;
-	std::vector<std::function<void(const DbStatus &)>> _errorCbs;
+	CollectionMap _cols;
+	SchemaMap _schemas;
+	StringVector _colsToDelete;
+	EventCallbackVector _eventCbs;
+	ErrorCallbackVector _errorCbs;
 	fs::FS *_fs = &LittleFS; // active filesystem
 	FrMutex _mu;             // guards _cols, _schemas, _colsToDelete
 
@@ -224,7 +234,7 @@ class ESPJsonDB {
 	DbStatus _lastError{DbStatusCode::Ok, ""};
 
 	struct DiagCache {
-		std::map<std::string, uint32_t> docsPerCollection;
+		StringUint32Map docsPerCollection;
 		uint32_t collections = 0;
 		uint32_t lastRefreshMs = 0; // millis when refreshed from FS
 	};
@@ -251,6 +261,7 @@ class ESPJsonDB {
 	// fs helpers
 	DbStatus ensureFsReady();
 	DbStatus ensureReady() const;
+	void rebindAllocatorAwareStateLocked(bool preserveData);
 	DbStatus removeCollectionDir(const std::string &name);
 	bool isReservedName(const std::string &name) const;
 	std::string fileRootDir() const;
@@ -302,15 +313,15 @@ class ESPJsonDB {
 	std::atomic<bool> _syncKickRequested{false};
 	std::atomic<uint32_t> _syncRequestSeq{0};
 	std::atomic<uint32_t> _syncCompletedSeq{0};
-	std::map<std::string, bool> _pendingDelayedCollections;
+	StringBoolMap _pendingDelayedCollections;
 	bool _delayedPreloadPhaseCompleted = true;
 	bool _dropAllRequested = false;
 	std::atomic<bool> _fileUploadStopRequested{false};
 	std::atomic<bool> _fileUploadTaskExited{true};
 	uint32_t _nextUploadId = 1;
-	std::vector<uint32_t> _uploadQueue;
-	std::map<uint32_t, std::shared_ptr<FileUploadJob>> _uploadJobs;
-	std::vector<uint32_t> _terminalUploadOrder;
+	UploadIdDeque _uploadQueue;
+	JsonDbMap<uint32_t, std::shared_ptr<FileUploadJob>> _uploadJobs;
+	UploadIdDeque _terminalUploadOrder;
 	static constexpr size_t kMaxRetainedTerminalUploads = 64;
 };
 

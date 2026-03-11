@@ -22,9 +22,12 @@ class DbTester {
 	void multiDocCreate(int docNum);
 	void multiDocRemove();
 	void refPopulateTest();
+	void idLifecycleRoundTripTest();
+	void snapshotRestoreIdLifecycleTest();
 	void fileStorageTest();
 	void asyncFileUploadTest();
 	void asyncFileUploadRetentionBoundTest();
+	void asyncFileUploadQueueOrderTest();
 	// Collection tests
 	void simpleCollectionCreate();
 	void simpleCollectionRemove();
@@ -48,6 +51,7 @@ class DbTester {
 	void delayedCollectionDropBeforeLoadTest();
 	void delayedCollectionConfigNormalizationTest();
 	void psramBufferWiringTest();
+	void psramMemoryBenchmarkTest();
 	// Utils
 	void printDBDiag();
 	void teardownLifecycle();

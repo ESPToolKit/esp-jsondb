@@ -1,4 +1,5 @@
 #include "dbTest.h"
+#include <atomic>
 #include <cstring>
 
 void DbTester::fileStorageTest() {
@@ -351,4 +352,100 @@ void DbTester::asyncFileUploadRetentionBoundTest() {
 	}
 
 	ESP_LOGI(DB_TESTER_TAG, "Async upload retention bound test passed");
+}
+
+void DbTester::asyncFileUploadQueueOrderTest() {
+	struct UploadCtx {
+		std::vector<uint8_t> payload;
+		size_t offset = 0;
+	};
+
+	const size_t uploadCount = 3;
+	std::vector<uint32_t> uploadIds;
+	uploadIds.reserve(uploadCount);
+	std::vector<std::string> uploadPaths;
+	uploadPaths.reserve(uploadCount);
+
+	std::atomic<size_t> doneCount{0};
+	volatile bool doneOk = true;
+	uint32_t completionOrder[uploadCount]{0, 0, 0};
+
+	ESPJsonDBFileOptions opts;
+	opts.overwrite = true;
+	opts.chunkSize = 64;
+
+	std::vector<std::shared_ptr<UploadCtx>> contexts;
+	contexts.reserve(uploadCount);
+
+	for (size_t i = 0; i < uploadCount; ++i) {
+		auto ctx = std::make_shared<UploadCtx>();
+		ctx->payload.resize(64, static_cast<uint8_t>(0x30 + i));
+		contexts.push_back(ctx);
+
+		const std::string path = "async/order_" + std::to_string(i) + ".bin";
+		uploadPaths.push_back(path);
+
+		DbFileUploadPullCb pullCb =
+		    [ctx](size_t requested, uint8_t *buffer, size_t &produced, bool &eof) -> DbStatus {
+			if (!buffer)
+				return {DbStatusCode::InvalidArgument, "buffer is null"};
+			if (ctx->offset >= ctx->payload.size()) {
+				produced = 0;
+				eof = true;
+				return {DbStatusCode::Ok, ""};
+			}
+			const size_t remaining = ctx->payload.size() - ctx->offset;
+			const size_t take = remaining < requested ? remaining : requested;
+			memcpy(buffer, ctx->payload.data() + ctx->offset, take);
+			ctx->offset += take;
+			produced = take;
+			eof = (ctx->offset >= ctx->payload.size());
+			return {DbStatusCode::Ok, ""};
+		};
+
+		DbFileUploadDoneCb doneCb =
+		    [&doneCount, &completionOrder, &doneOk](uint32_t uploadId, const DbStatus &st, size_t) {
+			const size_t idx = doneCount.fetch_add(1);
+			if (idx < uploadCount) {
+				completionOrder[idx] = uploadId;
+			}
+			if (!st.ok()) {
+				doneOk = false;
+			}
+		};
+
+		auto asyncRes = db.writeFileStreamAsync(path, pullCb, opts, doneCb);
+		if (!asyncRes.status.ok()) {
+			ESP_LOGE(DB_TESTER_TAG, "Queue order test upload start failed: %s", asyncRes.status.message);
+			return;
+		}
+		uploadIds.push_back(asyncRes.value);
+	}
+
+	const uint32_t started = millis();
+	while (doneCount.load() < uploadCount && (millis() - started) < 5000) {
+		delay(5);
+	}
+	if (doneCount.load() != uploadCount || !doneOk) {
+		ESP_LOGE(DB_TESTER_TAG, "Queue order test uploads did not complete cleanly");
+		return;
+	}
+
+	for (size_t i = 0; i < uploadCount; ++i) {
+		if (completionOrder[i] != uploadIds[i]) {
+			ESP_LOGE(DB_TESTER_TAG, "Queue order test completion order mismatch");
+			return;
+		}
+		auto state = db.getFileUploadState(uploadIds[i]);
+		if (!state.status.ok() || state.value != DbFileUploadState::Completed) {
+			ESP_LOGE(DB_TESTER_TAG, "Queue order test upload state mismatch");
+			return;
+		}
+	}
+
+	for (const auto &path : uploadPaths) {
+		(void)db.removeFile(path);
+	}
+
+	ESP_LOGI(DB_TESTER_TAG, "Async upload queue order test passed");
 }

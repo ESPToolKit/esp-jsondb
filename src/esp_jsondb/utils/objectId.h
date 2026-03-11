@@ -10,6 +10,8 @@
 #include <esp_system.h>
 #include <string>
 
+#include "doc_id.h"
+
 /*
     ObjectId-style IDs (12-byte → 24-hex)
     Layout: 4 bytes seconds since epoch, 5 bytes device/random, 3 bytes counter.
@@ -19,6 +21,7 @@ class ObjectId {
   public:
 	ObjectId(); // fills from rtc/time + chip data + counter
 	std::string toHex() const;
+	DocId toDocId() const;
 	static ObjectId fromHex(const std::string &hex, bool *ok);
 
   private:

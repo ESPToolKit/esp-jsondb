@@ -26,6 +26,14 @@ static uint8_t hexNibble(char c, bool *ok) {
 		*ok = false;
 	return 0;
 }
+
+static void encodeHex24(const uint8_t *bytes12, char *out24) {
+	static const char *kHex = "0123456789abcdef";
+	for (std::size_t i = 0; i < 12; ++i) {
+		out24[i * 2 + 0] = kHex[(bytes12[i] >> 4) & 0xF];
+		out24[i * 2 + 1] = kHex[bytes12[i] & 0xF];
+	}
+}
 } // namespace
 
 ObjectId::ObjectId() {
@@ -58,13 +66,18 @@ ObjectId::ObjectId() {
 }
 
 std::string ObjectId::toHex() const {
-	static const char *kHex = "0123456789abcdef";
 	std::string out;
 	out.resize(24);
-	for (size_t i = 0; i < _b.size(); ++i) {
-		out[i * 2 + 0] = kHex[(_b[i] >> 4) & 0xF];
-		out[i * 2 + 1] = kHex[_b[i] & 0xF];
-	}
+	encodeHex24(_b.data(), &out[0]);
+	return out;
+}
+
+DocId ObjectId::toDocId() const {
+	DocId out;
+	char hex[DocId::kStorageLength];
+	encodeHex24(_b.data(), hex);
+	hex[DocId::kHexLength] = '\0';
+	out.setHexUnchecked(hex);
 	return out;
 }
 

@@ -117,7 +117,7 @@ db.writeFileStream(
 - `getFileUploadState(uploadId)` retains terminal states for a bounded number of recent uploads; older upload IDs eventually return `NotFound`.
 - `/_files` is an internal reserved directory used for file storage and cannot be used as a collection name.
 - `getSnapshot()` and `restoreFromSnapshot()` currently cover document collections only; file storage under `/_files` is not included.
-- `usePSRAMBuffers` affects ESPJsonDB-owned byte buffers and decoded `DocView` `JsonDocument` pools on ArduinoJson v7. Public return containers like `readFile()` still use the existing API types.
+- `usePSRAMBuffers` affects ESPJsonDB-owned byte buffers, decoded `DocView` `JsonDocument` pools on ArduinoJson v7, and long-lived internal DB containers (collection/schema/upload/diag maps and queues). Public return containers like `readFile()` still use the existing API types.
 
 ## API Reference
 - `DbStatus init(const char* baseDir = "/db", const ESPJsonDBConfig& cfg = {})` – mount LittleFS (`cfg.initFileSystem`), preload collections into RAM cache (except names listed in `cfg.delayedCollectionSyncArray`), and start the sync worker task.
@@ -151,7 +151,7 @@ db.writeFileStream(
 - `autosync`, `coldSync`, `cacheEnabled` – sync behavior. `cacheEnabled=false` is rejected so writes stay on the sync task; init preloads collections unless they are listed in `delayedCollectionSyncArray`.
 - `delayedCollectionSyncArray` – collection names to skip during `init()` preload. Delayed collections load on first periodic autosync tick; if `autosync=false`, first `syncNow()` triggers one-time delayed preload. Accessing `collection(name)` earlier loads that delayed collection immediately.
 - `fs`, `initFileSystem`, `formatOnFail`, `partitionLabel`, `maxOpenFiles` – file system integration; pass your own `fs::FS` if you mount LittleFS elsewhere.
-- `usePSRAMBuffers` – prefer PSRAM for internal msgpack + file stream byte buffers and decoded `DocView` `JsonDocument` pools (ArduinoJson v7), with safe fallback to default heap. Task stacks are always created from internal RAM.
+- `usePSRAMBuffers` – prefer PSRAM for internal msgpack + file stream byte buffers, decoded `DocView` `JsonDocument` pools (ArduinoJson v7), and long-lived DB runtime container nodes, with safe fallback to default heap. Task stacks are always created from internal RAM.
 
 Stack sizes are expressed in bytes.
 

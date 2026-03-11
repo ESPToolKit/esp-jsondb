@@ -31,7 +31,7 @@ void ESPJsonDB::trackTerminalUploadLocked(const std::shared_ptr<FileUploadJob> &
 
 	while (_terminalUploadOrder.size() > kMaxRetainedTerminalUploads) {
 		const uint32_t expiredId = _terminalUploadOrder.front();
-		_terminalUploadOrder.erase(_terminalUploadOrder.begin());
+		_terminalUploadOrder.pop_front();
 
 		auto it = _uploadJobs.find(expiredId);
 		if (it == _uploadJobs.end())
@@ -314,7 +314,7 @@ void ESPJsonDB::fileUploadTaskLoop() {
 			FrLock lk(_mu);
 			if (!_uploadQueue.empty()) {
 				auto id = _uploadQueue.front();
-				_uploadQueue.erase(_uploadQueue.begin());
+				_uploadQueue.pop_front();
 				auto it = _uploadJobs.find(id);
 				if (it != _uploadJobs.end()) {
 					job = it->second;

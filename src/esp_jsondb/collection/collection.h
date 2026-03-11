@@ -133,13 +133,10 @@ class Collection {
 
   private:
 	using DocumentRecordPtr = std::shared_ptr<DocumentRecord>;
-	using DocumentMapValue = std::pair<const std::string, DocumentRecordPtr>;
+	using DocumentMapValue = std::pair<const DocId, DocumentRecordPtr>;
 	using DocumentMapAllocator = JsonDbAllocator<DocumentMapValue>;
-	using DocumentMap = std::map<
-	    std::string,
-	    DocumentRecordPtr,
-	    std::less<std::string>,
-	    DocumentMapAllocator>;
+	using DocumentMap =
+	    std::map<DocId, DocumentRecordPtr, DocIdLess, DocumentMapAllocator>;
 
 	ESPJsonDB *_db = nullptr;
 	std::string _name;
@@ -147,7 +144,7 @@ class Collection {
 	// Use shared_ptr to keep records alive while views exist
 	DocumentMap _docs;
 	bool _dirty = false;
-	std::vector<std::string> _deletedIds; // files to remove on next flush
+	JsonDbVector<DocId> _deletedIds;      // files to remove on next flush
 	FrMutex _mu;                          // guards _docs, _deletedIds
 	std::string _baseDir;
 	bool _cacheEnabled = true;
@@ -157,10 +154,10 @@ class Collection {
 	DbStatus writeDocToFile(const std::string &baseDir, const DocumentRecord &r);
 	DbResult<std::shared_ptr<DocumentRecord>>
 	readDocFromFile(const std::string &baseDir, const std::string &id);
-	DbStatus checkUniqueFieldsInCache(JsonObjectConst obj, const std::string &selfId);
-	DbStatus checkUniqueFieldsOnDisk(JsonObjectConst obj, const std::string &selfId);
-	DbStatus checkUniqueFields(JsonObjectConst obj, const std::string &selfId);
-	std::vector<std::string> listDocumentIdsFromFs() const;
+	DbStatus checkUniqueFieldsInCache(JsonObjectConst obj, const DocId *selfId);
+	DbStatus checkUniqueFieldsOnDisk(JsonObjectConst obj, const DocId *selfId);
+	DbStatus checkUniqueFields(JsonObjectConst obj, const DocId *selfId);
+	JsonDbVector<DocId> listDocumentIdsFromFs() const;
 	DbStatus persistImmediate(const std::shared_ptr<DocumentRecord> &rec);
 	size_t countDocumentsFromFs() const;
 	DocView makeView(std::shared_ptr<DocumentRecord> rec);
@@ -189,7 +186,7 @@ class Collection {
 
 template <typename Pred> DbResult<size_t> Collection::removeMany(Pred &&p) {
 	DbResult<size_t> res{};
-	std::vector<std::string> toErase;
+	JsonDbVector<DocId> toErase{JsonDbAllocator<DocId>(_usePSRAMBuffers)};
 	{
 		FrLock lk(_mu);
 		toErase.reserve(_docs.size());
@@ -234,7 +231,7 @@ DbResult<size_t> Collection::updateMany(Pred &&p, Mut &&m) {
 					continue;
 				}
 				// Unique constraints
-				auto ust = checkUniqueFields(obj, kv.second->meta.id);
+				auto ust = checkUniqueFields(obj, &kv.second->meta.id);
 				if (!ust.ok()) {
 					v.discard();
 					continue;
@@ -269,7 +266,7 @@ template <typename Mut, typename> DbResult<size_t> Collection::updateMany(Mut &&
 					continue;
 				}
 				// Unique constraints
-				auto ust = checkUniqueFields(obj, kv.second->meta.id);
+				auto ust = checkUniqueFields(obj, &kv.second->meta.id);
 				if (!ust.ok()) {
 					v.discard();
 					continue;

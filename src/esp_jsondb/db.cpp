@@ -3,10 +3,13 @@
 #include "utils/jsondb_allocator.h"
 #include <StreamUtils.h>
 #include <algorithm>
+#include <cstring>
 
 namespace {
 constexpr uint32_t kTaskStopTimeoutMs = 200;
 static void removeTree(fs::FS &fsImpl, const std::string &path);
+using DirEntry = std::pair<std::string, bool>;
+using DirEntryVector = JsonDbVector<DirEntry>;
 } // namespace
 
 FrMutex g_fsMutex; // definition of global FS mutex
@@ -36,6 +39,86 @@ DbStatus ESPJsonDB::ensureReady() const {
 		return {DbStatusCode::InvalidArgument, "database not initialized"};
 	}
 	return {DbStatusCode::Ok, ""};
+}
+
+void ESPJsonDB::rebindAllocatorAwareStateLocked(bool preserveData) {
+	const bool usePSRAMBuffers = _cfg.usePSRAMBuffers;
+
+	auto oldCols = std::move(_cols);
+	auto oldSchemas = std::move(_schemas);
+	auto oldColsToDelete = std::move(_colsToDelete);
+	auto oldEventCbs = std::move(_eventCbs);
+	auto oldErrorCbs = std::move(_errorCbs);
+	auto oldPendingDelayed = std::move(_pendingDelayedCollections);
+	auto oldUploadQueue = std::move(_uploadQueue);
+	auto oldUploadJobs = std::move(_uploadJobs);
+	auto oldTerminalUploadOrder = std::move(_terminalUploadOrder);
+	auto oldDiagDocs = std::move(_diagCache.docsPerCollection);
+
+	CollectionMap newCols{
+	    std::less<std::string>{}, CollectionMap::allocator_type(usePSRAMBuffers)};
+	SchemaMap newSchemas{std::less<std::string>{}, SchemaMap::allocator_type(usePSRAMBuffers)};
+	StringVector newColsToDelete{JsonDbAllocator<std::string>(usePSRAMBuffers)};
+	EventCallbackVector newEventCbs{
+	    JsonDbAllocator<std::function<void(DBEventType)>>(usePSRAMBuffers)};
+	ErrorCallbackVector newErrorCbs{
+	    JsonDbAllocator<std::function<void(const DbStatus &)>>(usePSRAMBuffers)};
+	StringBoolMap newPendingDelayed{
+	    std::less<std::string>{}, StringBoolMap::allocator_type(usePSRAMBuffers)};
+	UploadIdDeque newUploadQueue{JsonDbAllocator<uint32_t>(usePSRAMBuffers)};
+	decltype(_uploadJobs) newUploadJobs{
+	    std::less<uint32_t>{}, decltype(_uploadJobs)::allocator_type(usePSRAMBuffers)};
+	UploadIdDeque newTerminalUploadOrder{JsonDbAllocator<uint32_t>(usePSRAMBuffers)};
+	StringUint32Map newDiagDocs{
+	    std::less<std::string>{}, StringUint32Map::allocator_type(usePSRAMBuffers)};
+
+	if (preserveData) {
+		newColsToDelete.reserve(oldColsToDelete.size());
+		newEventCbs.reserve(oldEventCbs.size());
+		newErrorCbs.reserve(oldErrorCbs.size());
+
+		for (auto &kv : oldCols) {
+			newCols.emplace(kv.first, std::move(kv.second));
+		}
+		for (auto &kv : oldSchemas) {
+			newSchemas.emplace(kv.first, kv.second);
+		}
+		for (auto &name : oldColsToDelete) {
+			newColsToDelete.push_back(std::move(name));
+		}
+		for (auto &cb : oldEventCbs) {
+			newEventCbs.push_back(std::move(cb));
+		}
+		for (auto &cb : oldErrorCbs) {
+			newErrorCbs.push_back(std::move(cb));
+		}
+		for (auto &kv : oldPendingDelayed) {
+			newPendingDelayed.emplace(kv.first, kv.second);
+		}
+		for (auto id : oldUploadQueue) {
+			newUploadQueue.push_back(id);
+		}
+		for (auto &kv : oldUploadJobs) {
+			newUploadJobs.emplace(kv.first, std::move(kv.second));
+		}
+		for (auto id : oldTerminalUploadOrder) {
+			newTerminalUploadOrder.push_back(id);
+		}
+		for (auto &kv : oldDiagDocs) {
+			newDiagDocs.emplace(kv.first, kv.second);
+		}
+	}
+
+	_cols = std::move(newCols);
+	_schemas = std::move(newSchemas);
+	_colsToDelete = std::move(newColsToDelete);
+	_eventCbs = std::move(newEventCbs);
+	_errorCbs = std::move(newErrorCbs);
+	_pendingDelayedCollections = std::move(newPendingDelayed);
+	_uploadQueue = std::move(newUploadQueue);
+	_uploadJobs = std::move(newUploadJobs);
+	_terminalUploadOrder = std::move(newTerminalUploadOrder);
+	_diagCache.docsPerCollection = std::move(newDiagDocs);
 }
 
 uint32_t ESPJsonDB::stackBytesToWords(uint32_t stackBytes) {
@@ -167,7 +250,7 @@ DbStatus ESPJsonDB::preloadPendingDelayedCollectionsFromFs() {
 		return {DbStatusCode::IoError, "filesystem not ready"};
 	}
 
-	std::vector<std::string> names;
+	JsonDbVector<std::string> names{JsonDbAllocator<std::string>(_cfg.usePSRAMBuffers)};
 	{
 		FrLock lk(_mu);
 		names.reserve(_pendingDelayedCollections.size());
@@ -307,6 +390,9 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 	{
 		FrLock lk(_mu);
 		stopFileUploadTaskUnlocked(true);
+		rebindAllocatorAwareStateLocked(true);
+		_cols.clear();
+		_colsToDelete.clear();
 		_uploadQueue.clear();
 		_uploadJobs.clear();
 		_terminalUploadOrder.clear();
@@ -678,8 +764,8 @@ DbStatus ESPJsonDB::syncNow() {
 
 DbStatus ESPJsonDB::runSyncPass() {
 	// Snapshot work under lock
-	std::vector<std::string> colsToDrop;
-	std::vector<Collection *> cols;
+	StringVector colsToDrop{JsonDbAllocator<std::string>(_cfg.usePSRAMBuffers)};
+	JsonDbVector<Collection *> cols{JsonDbAllocator<Collection *>(_cfg.usePSRAMBuffers)};
 	bool dropAll = false;
 	{
 		FrLock lk(_mu);
@@ -796,7 +882,7 @@ void ESPJsonDB::stopSyncTaskUnlocked() {
 
 namespace {
 static void listDirEntries(
-    fs::FS &fsImpl, const std::string &dir, std::vector<std::pair<std::string, bool>> &out
+    fs::FS &fsImpl, const std::string &dir, DirEntryVector &out
 ) {
 	FrLock fs(g_fsMutex);
 	if (!fsImpl.exists(dir.c_str()))
@@ -837,7 +923,7 @@ static void removeTree(fs::FS &fsImpl, const std::string &path) {
 		return;
 	}
 	// List children first without holding lock during recursion
-	std::vector<std::pair<std::string, bool>> entries;
+	DirEntryVector entries{JsonDbAllocator<DirEntry>(false)};
 	listDirEntries(fsImpl, path, entries);
 	for (auto &e : entries) {
 		if (e.second) {
@@ -871,7 +957,10 @@ void ESPJsonDB::emitEvent(DBEventType ev) {
 	std::vector<std::function<void(DBEventType)>> callbacks;
 	{
 		FrLock lk(_mu);
-		callbacks = _eventCbs; // copy snapshot
+		callbacks.reserve(_eventCbs.size());
+		for (auto &cb : _eventCbs) {
+			callbacks.push_back(cb);
+		}
 	}
 	for (auto &fn : callbacks) {
 		if (fn)
@@ -883,7 +972,10 @@ void ESPJsonDB::emitError(const DbStatus &st) {
 	std::vector<std::function<void(const DbStatus &)>> callbacks;
 	{
 		FrLock lk(_mu);
-		callbacks = _errorCbs; // copy snapshot
+		callbacks.reserve(_errorCbs.size());
+		for (auto &cb : _errorCbs) {
+			callbacks.push_back(cb);
+		}
 	}
 	for (auto &fn : callbacks) {
 		if (fn)
@@ -932,7 +1024,7 @@ DbStatus ESPJsonDB::preloadCollectionsFromFs() {
 		return setLastError({DbStatusCode::IoError, "filesystem not ready"});
 	}
 
-	std::vector<std::string> names;
+	JsonDbVector<std::string> names{JsonDbAllocator<std::string>(_cfg.usePSRAMBuffers)};
 	{
 		FrLock fs(g_fsMutex);
 		if (!_fs->exists(_baseDir.c_str())) {
@@ -984,10 +1076,13 @@ JsonDocument ESPJsonDB::getDiag() {
 	// Build diagnostics from cached FS snapshot, overlapped with live loaded collections
 	// No filesystem access here.
 	JsonDocument doc;
+	const bool usePSRAMBuffers = _cfg.usePSRAMBuffers;
 
 	// Snapshot state under lock
-	std::map<std::string, uint32_t> cached;
-	std::map<std::string, uint32_t> live;
+	StringUint32Map cached{
+	    std::less<std::string>{}, StringUint32Map::allocator_type(usePSRAMBuffers)};
+	StringUint32Map live{
+	    std::less<std::string>{}, StringUint32Map::allocator_type(usePSRAMBuffers)};
 	uint32_t lastRefreshMs = 0;
 	// Copy of configuration for reporting
 	ESPJsonDBConfig cfgCopy{};
@@ -1008,7 +1103,7 @@ JsonDocument ESPJsonDB::getDiag() {
 	// Per-collection document counts
 	auto per = doc["documentsPerCollection"].to<JsonObject>();
 	// Union of keys: prefer live counts for loaded collections
-	std::map<std::string, bool> seen;
+	StringBoolMap seen{std::less<std::string>{}, StringBoolMap::allocator_type(usePSRAMBuffers)};
 	for (auto &kv : live) {
 		per[kv.first.c_str()] = kv.second;
 		seen[kv.first] = true;
@@ -1096,7 +1191,8 @@ std::vector<std::string> ESPJsonDB::getAllCollectionName() {
 	}
 	std::vector<std::string> names;
 	// Use a set to avoid duplicates
-	std::map<std::string, bool> seen;
+	StringBoolMap seen{
+	    std::less<std::string>{}, StringBoolMap::allocator_type(_cfg.usePSRAMBuffers)};
 	{
 		FrLock lk(_mu);
 		for (auto &kv : _cols) {
@@ -1138,6 +1234,7 @@ DbStatus ESPJsonDB::changeConfig(const ESPJsonDBConfig &cfg) {
 		stopSyncTaskUnlocked();
 		_cfg = cfg;
 		_cfg.cacheEnabled = true;
+		rebindAllocatorAwareStateLocked(true);
 		for (auto &kv : _cols) {
 			if (kv.second)
 				kv.second->setCacheEnabled(_cfg.cacheEnabled);
@@ -1171,7 +1268,7 @@ JsonDocument ESPJsonDB::getSnapshot() {
 	auto colsObj = snap["collections"].to<JsonObject>();
 
 	// Scan collections dirs
-	std::vector<std::pair<std::string, bool>> colDirs;
+	DirEntryVector colDirs{JsonDbAllocator<DirEntry>(_cfg.usePSRAMBuffers)};
 	listDirEntries(*_fs, _baseDir, colDirs);
 	for (auto &cd : colDirs) {
 		if (!cd.second)
@@ -1183,7 +1280,7 @@ JsonDocument ESPJsonDB::getSnapshot() {
 			continue;
 
 		// Iterate files in collection dir
-		std::vector<std::pair<std::string, bool>> files;
+		DirEntryVector files{JsonDbAllocator<DirEntry>(_cfg.usePSRAMBuffers)};
 		listDirEntries(*_fs, full, files);
 		JsonArray arr = colsObj[colName.c_str()].to<JsonArray>();
 		for (auto &fe : files) {
@@ -1263,6 +1360,9 @@ DbStatus ESPJsonDB::restoreFromSnapshot(const JsonDocument &snapshot) {
 			    obj["_id"].is<const char *>() ? obj["_id"].as<const char *>() : nullptr;
 			if (!id || !*id)
 				continue;
+			if (!DocId::isHex(id, std::strlen(id))) {
+				return setLastError({DbStatusCode::InvalidArgument, "snapshot contains invalid _id"});
+			}
 
 			// Copy object without _id into a temp doc
 			JsonDocument tmp;
@@ -1311,7 +1411,8 @@ DbStatus ESPJsonDB::restoreFromSnapshot(const JsonDocument &snapshot) {
 void ESPJsonDB::refreshDiagFromFs() {
 	if (!_fs)
 		return;
-	std::map<std::string, uint32_t> perCol;
+	StringUint32Map perCol{
+	    std::less<std::string>{}, StringUint32Map::allocator_type(_cfg.usePSRAMBuffers)};
 	uint32_t colCount = 0;
 	{
 		FrLock fs(g_fsMutex);

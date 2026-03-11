@@ -18,8 +18,10 @@
 #endif
 
 #include <cstddef>
+#include <deque>
 #include <cstdlib>
 #include <limits>
+#include <map>
 #include <new>
 #include <vector>
 
@@ -127,3 +129,6 @@ template <typename T> class JsonDbAllocator {
 };
 
 template <typename T> using JsonDbVector = std::vector<T, JsonDbAllocator<T>>;
+template <typename T> using JsonDbDeque = std::deque<T, JsonDbAllocator<T>>;
+template <typename Key, typename T, typename Compare = std::less<Key>>
+using JsonDbMap = std::map<Key, T, Compare, JsonDbAllocator<std::pair<const Key, T>>>;

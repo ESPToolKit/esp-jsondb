@@ -32,9 +32,12 @@ void DbTester::run() {
 	multiDocCreate(10);
 	multiDocRemove();
 	refPopulateTest();
+	idLifecycleRoundTripTest();
+	snapshotRestoreIdLifecycleTest();
 	fileStorageTest();
 	asyncFileUploadTest();
 	asyncFileUploadRetentionBoundTest();
+	asyncFileUploadQueueOrderTest();
 	printDBDiag();
 	// Collection tests
 	simpleCollectionCreate();
@@ -60,6 +63,7 @@ void DbTester::run() {
 	delayedCollectionDropBeforeLoadTest();
 	delayedCollectionConfigNormalizationTest();
 	psramBufferWiringTest();
+	psramMemoryBenchmarkTest();
 	printDBDiag();
 	teardownLifecycle();
 }

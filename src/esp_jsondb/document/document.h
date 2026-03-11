@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "../utils/dbTypes.h"
+#include "../utils/doc_id.h"
 #include "../utils/fr_mutex.h"
 #include "../utils/jsondb_allocator.h"
 #include "../utils/refs.h"
@@ -60,7 +61,7 @@ class JsonDbDocAllocator : public ArduinoJson::Allocator {
 struct DocumentMeta {
 	uint32_t createdAt = 0; // UTC milliseconds
 	uint32_t updatedAt = 0; // UTC milliseconds
-	std::string id;         // 24-hex ObjectId
+	DocId id;               // 24-hex ObjectId
 	bool dirty = false;     // needs flush to FS
 	bool removed = false;   // logically deleted; DocView::commit should fail
 };
