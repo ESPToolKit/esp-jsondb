@@ -8,6 +8,9 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 ### Added
 - `ESPJsonDBConfig::usePSRAMBuffers` to prefer PSRAM for ESPJsonDB-owned byte buffers when available (with automatic heap fallback).
 - `ESPJsonDBConfig::delayedCollectionSyncArray` to defer selected collection preloads at boot and load them later.
+- Sync status callback API:
+  - `onSyncStatus(std::function<void(const DBSyncStatus&)>)`
+  - `DBSyncStatus` / `DBSyncStage` / `DBSyncSource` to report boot preload and manual `syncNow()` progress.
 - Background async file upload API:
   - `writeFileStreamAsync(path, pullCb, opts, doneCb)`
   - `cancelFileUpload(uploadId)`
@@ -33,6 +36,9 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 - `dropAll()`, `changeConfig()`, and `init()` now cancel pending/running async uploads before reconfiguring filesystem state.
 - Async upload state retention is now bounded: terminal upload states are kept only for a recent window of upload IDs.
 - Updated `examples/FileStreaming` and file storage tests to cover callback/path convenience write flows.
+
+### Removed
+- Legacy `onSync(std::function<void()>)` callback API (breaking change). Use `onSyncStatus(...)` instead.
 
 ## [1.1.0] - 2026-02-12
 ### Added

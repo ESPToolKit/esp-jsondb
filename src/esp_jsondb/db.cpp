@@ -49,11 +49,13 @@ void ESPJsonDB::rebindAllocatorAwareStateLocked(bool preserveData) {
 	auto oldColsToDelete = std::move(_colsToDelete);
 	auto oldEventCbs = std::move(_eventCbs);
 	auto oldErrorCbs = std::move(_errorCbs);
+	auto oldSyncStatusCbs = std::move(_syncStatusCbs);
 	auto oldPendingDelayed = std::move(_pendingDelayedCollections);
 	auto oldUploadQueue = std::move(_uploadQueue);
 	auto oldUploadJobs = std::move(_uploadJobs);
 	auto oldTerminalUploadOrder = std::move(_terminalUploadOrder);
 	auto oldDiagDocs = std::move(_diagCache.docsPerCollection);
+	const DBSyncStatus oldLastSyncStatus = _lastSyncStatus;
 
 	CollectionMap newCols{
 	    std::less<std::string>{}, CollectionMap::allocator_type(usePSRAMBuffers)};
@@ -63,6 +65,8 @@ void ESPJsonDB::rebindAllocatorAwareStateLocked(bool preserveData) {
 	    JsonDbAllocator<std::function<void(DBEventType)>>(usePSRAMBuffers)};
 	ErrorCallbackVector newErrorCbs{
 	    JsonDbAllocator<std::function<void(const DbStatus &)>>(usePSRAMBuffers)};
+	SyncStatusCallbackVector newSyncStatusCbs{
+	    JsonDbAllocator<std::function<void(const DBSyncStatus &)>>(usePSRAMBuffers)};
 	StringBoolMap newPendingDelayed{
 	    std::less<std::string>{}, StringBoolMap::allocator_type(usePSRAMBuffers)};
 	UploadIdDeque newUploadQueue{JsonDbAllocator<uint32_t>(usePSRAMBuffers)};
@@ -76,6 +80,7 @@ void ESPJsonDB::rebindAllocatorAwareStateLocked(bool preserveData) {
 		newColsToDelete.reserve(oldColsToDelete.size());
 		newEventCbs.reserve(oldEventCbs.size());
 		newErrorCbs.reserve(oldErrorCbs.size());
+		newSyncStatusCbs.reserve(oldSyncStatusCbs.size());
 
 		for (auto &kv : oldCols) {
 			newCols.emplace(kv.first, std::move(kv.second));
@@ -91,6 +96,9 @@ void ESPJsonDB::rebindAllocatorAwareStateLocked(bool preserveData) {
 		}
 		for (auto &cb : oldErrorCbs) {
 			newErrorCbs.push_back(std::move(cb));
+		}
+		for (auto &cb : oldSyncStatusCbs) {
+			newSyncStatusCbs.push_back(std::move(cb));
 		}
 		for (auto &kv : oldPendingDelayed) {
 			newPendingDelayed.emplace(kv.first, kv.second);
@@ -114,11 +122,18 @@ void ESPJsonDB::rebindAllocatorAwareStateLocked(bool preserveData) {
 	_colsToDelete = std::move(newColsToDelete);
 	_eventCbs = std::move(newEventCbs);
 	_errorCbs = std::move(newErrorCbs);
+	_syncStatusCbs = std::move(newSyncStatusCbs);
 	_pendingDelayedCollections = std::move(newPendingDelayed);
 	_uploadQueue = std::move(newUploadQueue);
 	_uploadJobs = std::move(newUploadJobs);
 	_terminalUploadOrder = std::move(newTerminalUploadOrder);
 	_diagCache.docsPerCollection = std::move(newDiagDocs);
+	if (preserveData) {
+		_lastSyncStatus = oldLastSyncStatus;
+	} else {
+		_lastSyncStatus = {
+		    DBSyncStage::Idle, DBSyncSource::Init, "", 0, 0, {DbStatusCode::Ok, ""}};
+	}
 }
 
 uint32_t ESPJsonDB::stackBytesToWords(uint32_t stackBytes) {
@@ -242,7 +257,9 @@ DbStatus ESPJsonDB::preloadCollectionFromFsByName(
 	return {DbStatusCode::Ok, ""};
 }
 
-DbStatus ESPJsonDB::preloadPendingDelayedCollectionsFromFs() {
+DbStatus ESPJsonDB::preloadPendingDelayedCollectionsFromFs(
+    bool emitStatus, DBSyncSource statusSource
+) {
 	auto ready = ensureReady();
 	if (!ready.ok())
 		return ready;
@@ -259,6 +276,19 @@ DbStatus ESPJsonDB::preloadPendingDelayedCollectionsFromFs() {
 		}
 	}
 
+	const uint32_t total = static_cast<uint32_t>(names.size());
+	uint32_t completed = 0;
+	if (emitStatus) {
+		emitSyncStatus(
+		    DBSyncStage::ColdSyncStarted,
+		    statusSource,
+		    "",
+		    completed,
+		    total,
+		    {DbStatusCode::Ok, ""}
+		);
+	}
+
 	for (const auto &name : names) {
 		// Only preload existing on-disk collections in the background phase.
 		if (!collectionDirExistsOnFs(name)) {
@@ -266,17 +296,63 @@ DbStatus ESPJsonDB::preloadPendingDelayedCollectionsFromFs() {
 			_pendingDelayedCollections.erase(name);
 			if (_pendingDelayedCollections.empty())
 				_delayedPreloadPhaseCompleted = true;
+			++completed;
 			continue;
 		}
+		if (emitStatus) {
+			emitSyncStatus(
+			    DBSyncStage::ColdSyncCollectionStarted,
+			    statusSource,
+			    name,
+			    completed,
+			    total,
+			    {DbStatusCode::Ok, ""}
+			);
+		}
 		auto st = preloadCollectionFromFsByName(name, true);
-		if (!st.ok())
+		if (!st.ok()) {
+			if (emitStatus) {
+				emitSyncStatus(
+				    DBSyncStage::SyncFailed,
+				    statusSource,
+				    name,
+				    completed,
+				    total,
+				    st
+				);
+			}
 			return st;
+		}
+		++completed;
+		if (emitStatus) {
+			emitSyncStatus(
+			    DBSyncStage::ColdSyncCollectionCompleted,
+			    statusSource,
+			    name,
+			    completed,
+			    total,
+			    {DbStatusCode::Ok, ""}
+			);
+		}
+	}
+
+	if (emitStatus) {
+		emitSyncStatus(
+		    DBSyncStage::ColdSyncCompleted,
+		    statusSource,
+		    "",
+		    completed,
+		    total,
+		    {DbStatusCode::Ok, ""}
+		);
 	}
 
 	return {DbStatusCode::Ok, ""};
 }
 
-DbStatus ESPJsonDB::maybeRunDelayedPreload(bool triggeredByPeriodic) {
+DbStatus ESPJsonDB::maybeRunDelayedPreload(
+    bool triggeredByPeriodic, bool emitStatus, DBSyncSource statusSource
+) {
 	bool shouldRun = false;
 	{
 		FrLock lk(_mu);
@@ -291,7 +367,7 @@ DbStatus ESPJsonDB::maybeRunDelayedPreload(bool triggeredByPeriodic) {
 	if (!shouldRun)
 		return {DbStatusCode::Ok, ""};
 
-	auto st = preloadPendingDelayedCollectionsFromFs();
+	auto st = preloadPendingDelayedCollectionsFromFs(emitStatus, statusSource);
 	if (!st.ok())
 		return st;
 
@@ -328,6 +404,7 @@ void ESPJsonDB::deinit() {
 		_colsToDelete.clear();
 		_eventCbs.clear();
 		_errorCbs.clear();
+		_syncStatusCbs.clear();
 		_uploadQueue.clear();
 		_uploadJobs.clear();
 		_terminalUploadOrder.clear();
@@ -338,6 +415,8 @@ void ESPJsonDB::deinit() {
 		_diagCache.collections = 0;
 		_diagCache.lastRefreshMs = 0;
 		_diagCachePrimed = false;
+		_lastSyncStatus = {
+		    DBSyncStage::Idle, DBSyncSource::Init, "", 0, 0, {DbStatusCode::Ok, ""}};
 	}
 
 	_syncStopRequested.store(false, std::memory_order_release);
@@ -383,6 +462,11 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 	_syncRequestSeq.store(0, std::memory_order_release);
 	_syncCompletedSeq.store(0, std::memory_order_release);
 	_fileUploadStopRequested.store(false, std::memory_order_release);
+	{
+		FrLock lk(_mu);
+		_lastSyncStatus = {
+		    DBSyncStage::Idle, DBSyncSource::Init, "", 0, 0, {DbStatusCode::Ok, ""}};
+	}
 	auto st = ensureFsReady();
 	if (!st.ok())
 		return st;
@@ -415,7 +499,7 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 		return setLastError({DbStatusCode::Busy, "sync task start failed"});
 	}
 
-	auto preloadStatus = preloadCollectionsFromFs();
+	auto preloadStatus = preloadCollectionsFromFs(true, DBSyncSource::Init);
 	if (!preloadStatus.ok()) {
 		deinit();
 		return setLastError(preloadStatus);
@@ -451,14 +535,16 @@ void ESPJsonDB::onError(const std::function<void(const DbStatus &)> &cb) {
 	_errorCbs.push_back(cb);
 }
 
-void ESPJsonDB::onSync(const std::function<void()> &cb) {
-	// Wrap sync-only callback into event form
+void ESPJsonDB::onSyncStatus(const std::function<void(const DBSyncStatus &)> &cb) {
 	if (!cb)
 		return;
-	onEvent([cb](DBEventType ev) {
-		if (ev == DBEventType::Sync)
-			cb();
-	});
+	DBSyncStatus snapshot;
+	{
+		FrLock lk(_mu);
+		_syncStatusCbs.push_back(cb);
+		snapshot = _lastSyncStatus;
+	}
+	cb(snapshot);
 }
 
 DbStatus ESPJsonDB::dropCollection(const std::string &name) {
@@ -732,17 +818,35 @@ DbResult<size_t> ESPJsonDB::updateMany(
 DbStatus ESPJsonDB::syncNow() {
 	auto ready = ensureReady();
 	if (!ready.ok()) {
-		return setLastError(ready);
+		auto st = setLastError(ready);
+		emitSyncStatus(DBSyncStage::SyncFailed, DBSyncSource::SyncNow, "", 0, 0, st);
+		return st;
 	}
 	if (_syncTask != nullptr && xTaskGetCurrentTaskHandle() == _syncTask) {
-		return runSyncPass();
+		emitSyncStatus(
+		    DBSyncStage::SyncNowStarted, DBSyncSource::SyncNow, "", 0, 0, {DbStatusCode::Ok, ""}
+		);
+		auto delayedStatus = maybeRunDelayedPreload(false, true, DBSyncSource::SyncNow);
+		auto passStatus = runSyncPass();
+		DbStatus finalStatus = delayedStatus.ok() ? passStatus : delayedStatus;
+		if (!finalStatus.ok()) {
+			setLastError(finalStatus);
+			emitSyncStatus(DBSyncStage::SyncFailed, DBSyncSource::SyncNow, "", 0, 0, finalStatus);
+			return finalStatus;
+		}
+		emitSyncStatus(
+		    DBSyncStage::SyncNowCompleted, DBSyncSource::SyncNow, "", 0, 0, {DbStatusCode::Ok, ""}
+		);
+		return finalStatus;
 	}
 	if (_syncTask == nullptr) {
 		FrLock lk(_mu);
 		startSyncTaskUnlocked();
 	}
 	if (_syncTask == nullptr) {
-		return setLastError({DbStatusCode::Busy, "sync task not running"});
+		auto st = setLastError({DbStatusCode::Busy, "sync task not running"});
+		emitSyncStatus(DBSyncStage::SyncFailed, DBSyncSource::SyncNow, "", 0, 0, st);
+		return st;
 	}
 
 	const uint32_t targetSeq = _syncRequestSeq.fetch_add(1, std::memory_order_acq_rel) + 1;
@@ -752,10 +856,14 @@ DbStatus ESPJsonDB::syncNow() {
 	const uint32_t timeoutMs = std::max<uint32_t>(_cfg.intervalMs + 1000U, 60000U);
 	while (_syncCompletedSeq.load(std::memory_order_acquire) < targetSeq) {
 		if (_syncStopRequested.load(std::memory_order_acquire)) {
-			return setLastError({DbStatusCode::Busy, "sync task stopping"});
+			auto st = setLastError({DbStatusCode::Busy, "sync task stopping"});
+			emitSyncStatus(DBSyncStage::SyncFailed, DBSyncSource::SyncNow, "", 0, 0, st);
+			return st;
 		}
 		if ((millis() - startMs) > timeoutMs) {
-			return setLastError({DbStatusCode::Busy, "sync task timeout"});
+			auto st = setLastError({DbStatusCode::Busy, "sync task timeout"});
+			emitSyncStatus(DBSyncStage::SyncFailed, DBSyncSource::SyncNow, "", 0, 0, st);
+			return st;
 		}
 		vTaskDelay(pdMS_TO_TICKS(1));
 	}
@@ -840,13 +948,46 @@ void ESPJsonDB::syncTaskLoop() {
 			vTaskDelay(pdMS_TO_TICKS(10));
 			continue;
 		}
-		auto delayedStatus = maybeRunDelayedPreload(triggeredByPeriodic);
+		const uint32_t targetSeq = _syncRequestSeq.load(std::memory_order_acquire);
+		const uint32_t completedBefore = _syncCompletedSeq.load(std::memory_order_acquire);
+		const bool isManualSyncNow = targetSeq > completedBefore;
+		if (isManualSyncNow) {
+			emitSyncStatus(
+			    DBSyncStage::SyncNowStarted,
+			    DBSyncSource::SyncNow,
+			    "",
+			    0,
+			    0,
+			    {DbStatusCode::Ok, ""}
+			);
+		}
+
+		auto delayedStatus = maybeRunDelayedPreload(
+		    triggeredByPeriodic, isManualSyncNow && !triggeredByPeriodic, DBSyncSource::SyncNow
+		);
 		if (!delayedStatus.ok()) {
 			setLastError(delayedStatus);
 		}
-		const uint32_t targetSeq = _syncRequestSeq.load(std::memory_order_acquire);
 		lastSyncMs = now;
-		(void)runSyncPass();
+		auto syncStatus = runSyncPass();
+		DbStatus finalStatus = delayedStatus.ok() ? syncStatus : delayedStatus;
+		if (!finalStatus.ok()) {
+			setLastError(finalStatus);
+		}
+		if (isManualSyncNow) {
+			if (finalStatus.ok()) {
+				emitSyncStatus(
+				    DBSyncStage::SyncNowCompleted,
+				    DBSyncSource::SyncNow,
+				    "",
+				    0,
+				    0,
+				    {DbStatusCode::Ok, ""}
+				);
+			} else {
+				emitSyncStatus(DBSyncStage::SyncFailed, DBSyncSource::SyncNow, "", 0, 0, finalStatus);
+			}
+		}
 		uint32_t completed = _syncCompletedSeq.load(std::memory_order_acquire);
 		while (completed < targetSeq &&
 		       !_syncCompletedSeq
@@ -983,6 +1124,40 @@ void ESPJsonDB::emitError(const DbStatus &st) {
 	}
 }
 
+void ESPJsonDB::emitSyncStatus(const DBSyncStatus &status) {
+	std::vector<std::function<void(const DBSyncStatus &)>> callbacks;
+	{
+		FrLock lk(_mu);
+		_lastSyncStatus = status;
+		callbacks.reserve(_syncStatusCbs.size());
+		for (auto &cb : _syncStatusCbs) {
+			callbacks.push_back(cb);
+		}
+	}
+	for (auto &fn : callbacks) {
+		if (fn)
+			fn(status);
+	}
+}
+
+void ESPJsonDB::emitSyncStatus(
+    DBSyncStage stage,
+    DBSyncSource source,
+    const std::string &collectionName,
+    uint32_t collectionsCompleted,
+    uint32_t collectionsTotal,
+    const DbStatus &result
+) {
+	DBSyncStatus status;
+	status.stage = stage;
+	status.source = source;
+	status.collectionName = collectionName;
+	status.collectionsCompleted = collectionsCompleted;
+	status.collectionsTotal = collectionsTotal;
+	status.result = result;
+	emitSyncStatus(status);
+}
+
 void ESPJsonDB::noteDocumentCreated(const std::string &collectionName, uint32_t count) {
 	if (collectionName.empty() || count == 0)
 		return;
@@ -1016,7 +1191,7 @@ void ESPJsonDB::noteDocumentDeleted(const std::string &collectionName, uint32_t 
 	_diagCache.lastRefreshMs = millis();
 }
 
-DbStatus ESPJsonDB::preloadCollectionsFromFs() {
+DbStatus ESPJsonDB::preloadCollectionsFromFs(bool emitStatus, DBSyncSource statusSource) {
 	auto ready = ensureReady();
 	if (!ready.ok())
 		return setLastError(ready);
@@ -1056,17 +1231,78 @@ DbStatus ESPJsonDB::preloadCollectionsFromFs() {
 	std::sort(names.begin(), names.end());
 	names.erase(std::unique(names.begin(), names.end()), names.end());
 
-	for (const auto &name : names) {
-		{
-			FrLock lk(_mu);
+	JsonDbVector<std::string> preloadNames{JsonDbAllocator<std::string>(_cfg.usePSRAMBuffers)};
+	{
+		FrLock lk(_mu);
+		preloadNames.reserve(names.size());
+		for (const auto &name : names) {
 			if (_cols.find(name) != _cols.end())
 				continue;
 			if (_pendingDelayedCollections.find(name) != _pendingDelayedCollections.end())
 				continue;
+			preloadNames.push_back(name);
+		}
+	}
+
+	const uint32_t total = static_cast<uint32_t>(preloadNames.size());
+	uint32_t completed = 0;
+	if (emitStatus) {
+		emitSyncStatus(
+		    DBSyncStage::ColdSyncStarted,
+		    statusSource,
+		    "",
+		    completed,
+		    total,
+		    {DbStatusCode::Ok, ""}
+		);
+	}
+
+	for (const auto &name : preloadNames) {
+		if (emitStatus) {
+			emitSyncStatus(
+			    DBSyncStage::ColdSyncCollectionStarted,
+			    statusSource,
+			    name,
+			    completed,
+			    total,
+			    {DbStatusCode::Ok, ""}
+			);
 		}
 		auto st = preloadCollectionFromFsByName(name, false);
-		if (!st.ok())
+		if (!st.ok()) {
+			if (emitStatus) {
+				emitSyncStatus(
+				    DBSyncStage::SyncFailed,
+				    statusSource,
+				    name,
+				    completed,
+				    total,
+				    st
+				);
+			}
 			return setLastError(st);
+		}
+		++completed;
+		if (emitStatus) {
+			emitSyncStatus(
+			    DBSyncStage::ColdSyncCollectionCompleted,
+			    statusSource,
+			    name,
+			    completed,
+			    total,
+			    {DbStatusCode::Ok, ""}
+			);
+		}
+	}
+	if (emitStatus) {
+		emitSyncStatus(
+		    DBSyncStage::ColdSyncCompleted,
+		    statusSource,
+		    "",
+		    completed,
+		    total,
+		    {DbStatusCode::Ok, ""}
+		);
 	}
 
 	return setLastError({DbStatusCode::Ok, ""});
@@ -1244,7 +1480,7 @@ DbStatus ESPJsonDB::changeConfig(const ESPJsonDBConfig &cfg) {
 	if (!fsStatus.ok())
 		return fsStatus;
 	if (doColdSync) {
-		auto preloadStatus = preloadCollectionsFromFs();
+		auto preloadStatus = preloadCollectionsFromFs(false, DBSyncSource::Init);
 		if (!preloadStatus.ok()) {
 			return preloadStatus;
 		}

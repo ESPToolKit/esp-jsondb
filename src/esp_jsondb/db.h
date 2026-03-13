@@ -47,8 +47,8 @@ class ESPJsonDB {
 	// Register callback for error notifications
 	void onError(const std::function<void(const DbStatus &)> &cb);
 
-	// Backwards-compat: register a sync-only callback
-	void onSync(const std::function<void()> &cb);
+	// Register callback for sync status transitions.
+	void onSyncStatus(const std::function<void(const DBSyncStatus &)> &cb);
 
 	// Creates collection if missing
 	DbResult<Collection *> collection(const std::string &name);
@@ -219,6 +219,7 @@ class ESPJsonDB {
 	using UploadIdDeque = JsonDbDeque<uint32_t>;
 	using EventCallbackVector = JsonDbVector<std::function<void(DBEventType)>>;
 	using ErrorCallbackVector = JsonDbVector<std::function<void(const DbStatus &)>>;
+	using SyncStatusCallbackVector = JsonDbVector<std::function<void(const DBSyncStatus &)>>;
 
 	std::string _baseDir;
 	ESPJsonDBConfig _cfg;
@@ -227,11 +228,13 @@ class ESPJsonDB {
 	StringVector _colsToDelete;
 	EventCallbackVector _eventCbs;
 	ErrorCallbackVector _errorCbs;
+	SyncStatusCallbackVector _syncStatusCbs;
 	fs::FS *_fs = &LittleFS; // active filesystem
 	FrMutex _mu;             // guards _cols, _schemas, _colsToDelete
 
 	// Tracks most recent status for diagnostics/debugging
 	DbStatus _lastError{DbStatusCode::Ok, ""};
+	DBSyncStatus _lastSyncStatus{};
 
 	struct DiagCache {
 		StringUint32Map docsPerCollection;
@@ -257,6 +260,15 @@ class ESPJsonDB {
 			emitError(st);
 		return st;
 	}
+	void emitSyncStatus(const DBSyncStatus &status);
+	void emitSyncStatus(
+	    DBSyncStage stage,
+	    DBSyncSource source,
+	    const std::string &collectionName,
+	    uint32_t collectionsCompleted,
+	    uint32_t collectionsTotal,
+	    const DbStatus &result
+	);
 
 	// fs helpers
 	DbStatus ensureFsReady();
@@ -267,8 +279,9 @@ class ESPJsonDB {
 	std::string fileRootDir() const;
 	DbStatus normalizeFilePath(const std::string &rawRelativePath, std::string &normalized) const;
 	void rebuildDelayedCollectionStateFromConfigLocked();
-	DbStatus maybeRunDelayedPreload(bool triggeredByPeriodic);
-	DbStatus preloadPendingDelayedCollectionsFromFs();
+	DbStatus
+	maybeRunDelayedPreload(bool triggeredByPeriodic, bool emitStatus, DBSyncSource statusSource);
+	DbStatus preloadPendingDelayedCollectionsFromFs(bool emitStatus, DBSyncSource statusSource);
 	DbStatus preloadCollectionFromFsByName(
 	    const std::string &name, bool markDelayedHandled, bool *insertedOut = nullptr
 	);
@@ -303,7 +316,7 @@ class ESPJsonDB {
 
 	// Refresh diag cache from filesystem (expensive; used only for explicit full refresh paths)
 	void refreshDiagFromFs();
-	DbStatus preloadCollectionsFromFs();
+	DbStatus preloadCollectionsFromFs(bool emitStatus, DBSyncSource statusSource);
 
 	// FreeRTOS task handles for autosync and async uploads
 	TaskHandle_t _syncTask = nullptr;

@@ -62,6 +62,11 @@ void DbTester::run() {
 	delayedCollectionSyncNowFallbackTest();
 	delayedCollectionDropBeforeLoadTest();
 	delayedCollectionConfigNormalizationTest();
+	// Sync status callback tests
+	syncStatusColdPreloadSequenceTest();
+	syncStatusLateSubscriptionSnapshotTest();
+	syncStatusManualSyncNowTest();
+	syncStatusPeriodicExclusionTest();
 	psramBufferWiringTest();
 	psramMemoryBenchmarkTest();
 	printDBDiag();

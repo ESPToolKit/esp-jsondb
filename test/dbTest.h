@@ -50,6 +50,11 @@ class DbTester {
 	void delayedCollectionSyncNowFallbackTest();
 	void delayedCollectionDropBeforeLoadTest();
 	void delayedCollectionConfigNormalizationTest();
+	// Sync status callback tests
+	void syncStatusColdPreloadSequenceTest();
+	void syncStatusLateSubscriptionSnapshotTest();
+	void syncStatusManualSyncNowTest();
+	void syncStatusPeriodicExclusionTest();
 	void psramBufferWiringTest();
 	void psramMemoryBenchmarkTest();
 	// Utils

@@ -73,6 +73,50 @@ inline const char *dbEventTypeToString(DBEventType ev) {
 	return (idx < count) ? kDBEventTypeDescriptions[idx] : "Unknown";
 }
 
+enum class DBSyncStage : uint8_t {
+	Idle = 0,
+	ColdSyncStarted,
+	ColdSyncCollectionStarted,
+	ColdSyncCollectionCompleted,
+	ColdSyncCompleted,
+	SyncNowStarted,
+	SyncNowCompleted,
+	SyncFailed
+};
+
+enum class DBSyncSource : uint8_t { Init = 0, SyncNow };
+
+// Human-readable descriptions for DBSyncStage values.
+static constexpr const char *kDBSyncStageDescriptions[] = {
+    "Idle",
+    "Cold sync started",
+    "Cold sync collection started",
+    "Cold sync collection completed",
+    "Cold sync completed",
+    "syncNow started",
+    "syncNow completed",
+    "Sync failed",
+};
+
+inline const char *dbSyncStageToString(DBSyncStage stage) {
+	const auto idx = static_cast<uint8_t>(stage);
+	const auto count = static_cast<uint8_t>(
+	    sizeof(kDBSyncStageDescriptions) / sizeof(kDBSyncStageDescriptions[0])
+	);
+	return (idx < count) ? kDBSyncStageDescriptions[idx] : "Unknown";
+}
+
+// Human-readable descriptions for DBSyncSource values.
+static constexpr const char *kDBSyncSourceDescriptions[] = {"Init", "syncNow"};
+
+inline const char *dbSyncSourceToString(DBSyncSource source) {
+	const auto idx = static_cast<uint8_t>(source);
+	const auto count = static_cast<uint8_t>(
+	    sizeof(kDBSyncSourceDescriptions) / sizeof(kDBSyncSourceDescriptions[0])
+	);
+	return (idx < count) ? kDBSyncSourceDescriptions[idx] : "Unknown";
+}
+
 // Human-readable descriptions for DbStatusCode values.
 // Embedded-friendly: constexpr data and inline accessor (no dynamic alloc, no exceptions)
 static constexpr const char *kDbStatusCodeDescriptions[] = {
@@ -105,6 +149,15 @@ struct DbStatus {
 	bool ok() const {
 		return code == DbStatusCode::Ok;
 	}
+};
+
+struct DBSyncStatus {
+	DBSyncStage stage = DBSyncStage::Idle;
+	DBSyncSource source = DBSyncSource::Init;
+	std::string collectionName;
+	uint32_t collectionsCompleted = 0;
+	uint32_t collectionsTotal = 0;
+	DbStatus result{DbStatusCode::Ok, ""};
 };
 
 enum class DbFileUploadState : uint8_t { Queued = 0, Running, Completed, Failed, Cancelled };

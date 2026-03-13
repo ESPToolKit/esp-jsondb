@@ -16,6 +16,17 @@ void setup() {
 
 	db.onEvent([](DBEventType event) { Serial.printf("Event: %s\n", dbEventTypeToString(event)); });
 
+	db.onSyncStatus([](const DBSyncStatus &status) {
+		Serial.printf(
+		    "Sync: %s (%s) collection=%s %lu/%lu\n",
+		    dbSyncStageToString(status.stage),
+		    dbSyncSourceToString(status.source),
+		    status.collectionName.c_str(),
+		    static_cast<unsigned long>(status.collectionsCompleted),
+		    static_cast<unsigned long>(status.collectionsTotal)
+		);
+	});
+
 	db.onError([](const DbStatus &status) { Serial.printf("Error: %s\n", status.message); });
 
 	JsonDocument userDoc;

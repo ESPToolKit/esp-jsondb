@@ -42,6 +42,16 @@ void setup() {
     db.onEvent([](DBEventType evt){
         Serial.printf("Event: %s\n", dbEventTypeToString(evt));
     });
+    db.onSyncStatus([](const DBSyncStatus& status){
+        Serial.printf(
+            "Sync: %s source=%s collection=%s (%lu/%lu)\n",
+            dbSyncStageToString(status.stage),
+            dbSyncSourceToString(status.source),
+            status.collectionName.c_str(),
+            static_cast<unsigned long>(status.collectionsCompleted),
+            static_cast<unsigned long>(status.collectionsTotal)
+        );
+    });
     db.onError([](const DbStatus &st){
         Serial.printf("Error: %s\n", st.message);
     });
@@ -110,7 +120,7 @@ db.writeFileStream(
 ## Gotchas
 - Each collection lives in RAM; add PSRAM when handling large documents.
 - All payloads are JSON; converting to structs is optional but deserialisation still costs memory—size your `JsonDocument` objects carefully.
-- Sync callbacks run on the background task; keep them short to avoid blocking periodic flushes.
+- `onSyncStatus()` immediately invokes the callback once on the caller task with the latest snapshot, then invokes future updates from the task producing them (`init()` caller or sync task). Keep callbacks short.
 - Unique constraints and validators run inside write operations. Long-running validators will increase latency for the calling task.
 - `writeFileStream()` and `readFileStream()` hold the filesystem lock while processing the stream; use reasonable chunk sizes and avoid blocking stream sources/sinks.
 - `writeFileStreamAsync()` runs producer callbacks on a background task; callbacks must be short and thread-safe.
@@ -124,6 +134,8 @@ db.writeFileStream(
 - `void deinit()` – stop background tasks, cancel pending async uploads, and release runtime state. Safe before `init()` and safe to call repeatedly.
 - `bool isInitialized() const` – reports whether this instance is initialized and ready for DB operations.
 - `void onEvent(std::function<void(DBEventType)>)` / `void onError(std::function<void(const DbStatus&)>)` – receive sync, CRUD, and validation events.
+- `void onSyncStatus(std::function<void(const DBSyncStatus&)>)` – observe cold preload and `syncNow()` progress with stage/source/current collection counters.
+- `onSync(std::function<void()>)` was removed; migrate to `onSyncStatus(...)`.
 - Collection management: `collection(name)`, `dropCollection(name)`, `dropAll()`, `getAllCollectionName()`.
 - Document helpers:
   - Create: `create`, `createMany` (JSON array) plus direct `Collection::create*` variants.
