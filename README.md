@@ -115,6 +115,9 @@ db.writeFileStream(
     },
     fileOpts
 );
+
+auto fileInfo = db.getFileInfo("notes/readme.txt");
+auto fileTree = db.listFiles("firmware", true);
 ```
 
 ## Gotchas
@@ -125,6 +128,8 @@ db.writeFileStream(
 - `writeFileStream()` and `readFileStream()` hold the filesystem lock while processing the stream; use reasonable chunk sizes and avoid blocking stream sources/sinks.
 - `writeFileStreamAsync()` runs producer callbacks on a background task; callbacks must be short and thread-safe.
 - `getFileUploadState(uploadId)` retains terminal states for a bounded number of recent uploads; older upload IDs eventually return `NotFound`.
+- Uploaded files are not surfaced as collections or snapshots; use `getFileInfo()` / `listFiles()` to inspect persisted file storage under `/_files`.
+- `dropCollection()` only schedules on-disk removal; the collection directory and document files are deleted on the next autosync pass or `syncNow()`.
 - `/_files` is an internal reserved directory used for file storage and cannot be used as a collection name.
 - `getSnapshot()` and `restoreFromSnapshot()` currently cover document collections only; file storage under `/_files` is not included.
 - `usePSRAMBuffers` affects ESPJsonDB-owned byte buffers, decoded `DocView` `JsonDocument` pools on ArduinoJson v7, and long-lived internal DB containers (collection/schema/upload/diag maps and queues). Public return containers like `readFile()` still use the existing API types.
@@ -137,6 +142,7 @@ db.writeFileStream(
 - `void onSyncStatus(std::function<void(const DBSyncStatus&)>)` – observe cold preload and `syncNow()` progress with stage/source/current collection counters.
 - `onSync(std::function<void()>)` was removed; migrate to `onSyncStatus(...)`.
 - Collection management: `collection(name)`, `dropCollection(name)`, `dropAll()`, `getAllCollectionName()`.
+  - `dropCollection(name)` removes in-memory state immediately and deletes the corresponding filesystem directory on the next autosync pass or explicit `syncNow()`.
 - Document helpers:
   - Create: `create`, `createMany` (JSON array) plus direct `Collection::create*` variants.
   - Read: `findById`, `findOne`, `findMany` (predicate or JSON filter) returning `DocView` so you can read/write lazily.
@@ -153,6 +159,8 @@ db.writeFileStream(
   - `cancelFileUpload(uploadId)`, `getFileUploadState(uploadId)` for async job control (terminal states are retained for a bounded recent window).
   - `writeFile(path, data, size)` / `readFile(path)` for direct byte buffers.
   - `writeTextFile(path, text)` / `readTextFile(path)` for UTF-8 or plain text payloads.
+  - `getFileInfo(path)` returns a JSON object with `path`, `name`, `exists`, `isDirectory`, and `size`.
+  - `listFiles(prefix, recursive)` returns a JSON document with `prefix`, `recursive`, and an `entries` array of file/directory metadata objects.
   - `fileExists(path)`, `fileSize(path)`, `removeFile(path)` for file lifecycle utilities.
   - File paths are relative to `/<baseDir>/_files` and path traversal segments are rejected.
   - `ESPJsonDBFileOptions`: `overwrite` and `chunkSize` controls for stream writes.

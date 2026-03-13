@@ -184,6 +184,8 @@ class ESPJsonDB {
 	readFileStream(const std::string &relativePath, Stream &out, size_t chunkSize = 512);
 	DbResult<std::vector<uint8_t>> readFile(const std::string &relativePath);
 	DbResult<std::string> readTextFile(const std::string &relativePath);
+	DbResult<JsonDocument> getFileInfo(const std::string &relativePath);
+	DbResult<JsonDocument> listFiles(const std::string &relativePrefix = "", bool recursive = true);
 
 	DbStatus removeFile(const std::string &relativePath);
 	DbResult<bool> fileExists(const std::string &relativePath);

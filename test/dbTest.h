@@ -24,15 +24,19 @@ class DbTester {
 	void refPopulateTest();
 	void idLifecycleRoundTripTest();
 	void snapshotRestoreIdLifecycleTest();
+	void documentFileDeletionOnSyncTest();
 	void fileStorageTest();
+	void fileMetadataDiscoveryTest();
 	void asyncFileUploadTest();
 	void asyncFileUploadRetentionBoundTest();
 	void asyncFileUploadQueueOrderTest();
 	// Collection tests
 	void simpleCollectionCreate();
 	void simpleCollectionRemove();
+	void collectionDirectoryCleanupOnSyncTest();
 	void multiCollectionCreate(int collNum);
 	void allCollectionDrop();
+	void dropAllRemovesBaseDirTest();
 	// Bulk tests
 	void updateManyFilter();
 	void updateManyLambdaFilter();

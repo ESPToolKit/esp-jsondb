@@ -21,6 +21,9 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
   - `writeFileFromPath(path, sourceFsPath, opts)` to avoid manual source `File` management.
 - New `examples/LargeFileStreaming` sketch showing chunked large-binary streaming with streaming hash verification.
 - New `examples/AsyncLargeFileUpload` sketch showing background large-binary upload with progress polling and hash verification.
+- File discovery APIs for persisted uploads:
+  - `getFileInfo(path)` for per-path metadata lookup
+  - `listFiles(prefix, recursive)` for directory-style discovery under `/_files`
 
 ### Changed
 - `init()` now skips collections listed in `delayedCollectionSyncArray` during eager preload; deferred collections are loaded on first periodic autosync tick (or first `syncNow()` when `autosync=false`) and still load immediately on first explicit `collection(name)` access.
@@ -36,6 +39,11 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 - `dropAll()`, `changeConfig()`, and `init()` now cancel pending/running async uploads before reconfiguring filesystem state.
 - Async upload state retention is now bounded: terminal upload states are kept only for a recent window of upload IDs.
 - Updated `examples/FileStreaming` and file storage tests to cover callback/path convenience write flows.
+
+### Fixed
+- Collection cleanup on sync now reports filesystem removal errors instead of silently succeeding when a collection directory or document file cannot be deleted.
+- Recursive collection and `dropAll()` cleanup now removes directories consistently across Arduino-ESP32 and ESP-IDF builds.
+- Added hardware tests that verify collection directories and document files actually disappear from LittleFS after sync-driven cleanup.
 
 ### Removed
 - Legacy `onSync(std::function<void()>)` callback API (breaking change). Use `onSyncStatus(...)` instead.

@@ -2,6 +2,18 @@
 #include <atomic>
 #include <cstring>
 
+namespace {
+JsonObjectConst findFileEntry(JsonArrayConst entries, const char *path) {
+	for (JsonObjectConst entry : entries) {
+		const char *entryPath = entry["path"].as<const char *>();
+		if (entryPath && strcmp(entryPath, path) == 0) {
+			return entry;
+		}
+	}
+	return JsonObjectConst();
+}
+}
+
 void DbTester::fileStorageTest() {
 	const std::string textPath = "docs/sample.txt";
 	const std::string textPayload = "ESPJsonDB file storage test";
@@ -163,6 +175,129 @@ void DbTester::fileStorageTest() {
 	(void)db.removeFile("bin/invalid_callback.bin");
 
 	ESP_LOGI(DB_TESTER_TAG, "File storage test passed");
+}
+
+void DbTester::fileMetadataDiscoveryTest() {
+	auto clearStatus = db.dropAll();
+	if (!clearStatus.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest dropAll failed: %s", clearStatus.message);
+		return;
+	}
+
+	auto topWrite = db.writeTextFile("top.txt", "root");
+	auto infoWrite = db.writeTextFile("docs/info.txt", "metadata");
+	auto nestedWrite = db.writeTextFile("docs/nested/child.txt", "nested");
+	if (!topWrite.ok() || !infoWrite.ok() || !nestedWrite.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest failed to seed files");
+		return;
+	}
+
+	JsonDocument userDoc;
+	userDoc["type"] = "file-listing-should-ignore-collections";
+	auto createRes = db.create("users", userDoc.as<JsonObjectConst>());
+	if (!createRes.status.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest create collection doc failed: %s", createRes.status.message);
+		return;
+	}
+
+	auto syncStatus = db.syncNow();
+	if (!syncStatus.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest sync failed: %s", syncStatus.message);
+		return;
+	}
+
+	auto fileInfo = db.getFileInfo("docs/info.txt");
+	if (!fileInfo.status.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest getFileInfo(file) failed: %s", fileInfo.status.message);
+		return;
+	}
+	if (strcmp(fileInfo.value["path"] | "", "docs/info.txt") != 0 ||
+	    strcmp(fileInfo.value["name"] | "", "info.txt") != 0 ||
+	    !fileInfo.value["exists"].as<bool>() ||
+	    fileInfo.value["isDirectory"].as<bool>() ||
+	    fileInfo.value["size"].as<size_t>() != std::strlen("metadata")) {
+		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest file metadata mismatch");
+		return;
+	}
+
+	auto dirInfo = db.getFileInfo("docs");
+	if (!dirInfo.status.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest getFileInfo(dir) failed: %s", dirInfo.status.message);
+		return;
+	}
+	if (strcmp(dirInfo.value["path"] | "", "docs") != 0 ||
+	    strcmp(dirInfo.value["name"] | "", "docs") != 0 ||
+	    !dirInfo.value["exists"].as<bool>() ||
+	    !dirInfo.value["isDirectory"].as<bool>() ||
+	    dirInfo.value["size"].as<size_t>() != 0) {
+		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest directory metadata mismatch");
+		return;
+	}
+
+	auto topLevel = db.listFiles("", false);
+	if (!topLevel.status.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest top-level listFiles failed: %s", topLevel.status.message);
+		return;
+	}
+	JsonArrayConst topEntries = topLevel.value["entries"].as<JsonArrayConst>();
+	auto topTxt = findFileEntry(topEntries, "top.txt");
+	auto docsDir = findFileEntry(topEntries, "docs");
+	auto nestedChildAtTop = findFileEntry(topEntries, "docs/nested/child.txt");
+	auto leakedCollection = findFileEntry(topEntries, "users");
+	if (topEntries.isNull() || topEntries.size() != 2 || topTxt.isNull() || docsDir.isNull() ||
+	    !docsDir["isDirectory"].as<bool>() || !nestedChildAtTop.isNull() || !leakedCollection.isNull()) {
+		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest top-level listing mismatch");
+		return;
+	}
+
+	auto docsRecursive = db.listFiles("docs", true);
+	if (!docsRecursive.status.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest recursive listFiles failed: %s", docsRecursive.status.message);
+		return;
+	}
+	JsonArrayConst docsEntries = docsRecursive.value["entries"].as<JsonArrayConst>();
+	if (strcmp(docsRecursive.value["prefix"] | "", "docs") != 0 ||
+	    !docsRecursive.value["recursive"].as<bool>() || docsEntries.size() != 3) {
+		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest recursive listing header mismatch");
+		return;
+	}
+	const char *expectedOrder[] = {"docs/info.txt", "docs/nested", "docs/nested/child.txt"};
+	for (size_t i = 0; i < docsEntries.size(); ++i) {
+		const char *path = docsEntries[i]["path"].as<const char *>();
+		if (!path || strcmp(path, expectedOrder[i]) != 0) {
+			ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest recursive listing order mismatch");
+			return;
+		}
+	}
+
+	auto missingInfo = db.getFileInfo("missing.bin");
+	if (missingInfo.status.code != DbStatusCode::NotFound) {
+		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest expected NotFound for missing file info");
+		return;
+	}
+
+	auto invalidInfo = db.getFileInfo("../escape");
+	if (invalidInfo.status.code != DbStatusCode::InvalidArgument) {
+		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest expected InvalidArgument for invalid file info path");
+		return;
+	}
+
+	auto invalidList = db.listFiles("../escape", true);
+	if (invalidList.status.code != DbStatusCode::InvalidArgument) {
+		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest expected InvalidArgument for invalid listFiles path");
+		return;
+	}
+
+	auto missingList = db.listFiles("missing_prefix", true);
+	if (missingList.status.code != DbStatusCode::NotFound) {
+		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest expected NotFound for missing prefix");
+		return;
+	}
+
+	(void)db.removeFile("top.txt");
+	(void)db.removeFile("docs/info.txt");
+	(void)db.removeFile("docs/nested/child.txt");
+	ESP_LOGI(DB_TESTER_TAG, "File metadata discovery test passed");
 }
 
 void DbTester::asyncFileUploadTest() {

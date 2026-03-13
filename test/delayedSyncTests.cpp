@@ -6,6 +6,10 @@ namespace {
 bool hasCollectionName(const std::vector<std::string> &names, const std::string &name) {
 	return std::find(names.begin(), names.end(), name) != names.end();
 }
+
+std::string delayedCollectionPath(const std::string &name) {
+	return std::string("/test_db/") + name;
+}
 } // namespace
 
 void DbTester::delayedCollectionAccessBeforeAutosyncTickTest() {
@@ -202,10 +206,8 @@ void DbTester::delayedCollectionDropBeforeLoadTest() {
 		return;
 	}
 
-	JsonDocument snapshot = db.getSnapshot();
-	auto cols = snapshot["collections"].as<JsonObjectConst>();
-	if (!cols["drop_before_load"].isNull()) {
-		ESP_LOGE(DB_TESTER_TAG, "drop_before_load still exists on filesystem after delayed drop");
+	if (LittleFS.exists(delayedCollectionPath("drop_before_load").c_str())) {
+		ESP_LOGE(DB_TESTER_TAG, "drop_before_load directory still exists after delayed drop sync");
 		return;
 	}
 

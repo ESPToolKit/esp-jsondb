@@ -918,7 +918,9 @@ DbStatus Collection::flushDirtyToFs(const std::string &baseDir, bool &didWork) {
 			{
 				FrLock fs(g_fsMutex);
 				if (_fs->exists(path.c_str())) {
-					_fs->remove(path.c_str());
+					if (!_fs->remove(path.c_str())) {
+						return recordStatus({DbStatusCode::IoError, "document delete failed"});
+					}
 				}
 			}
 		}

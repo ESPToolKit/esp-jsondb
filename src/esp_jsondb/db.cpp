@@ -7,7 +7,7 @@
 
 namespace {
 constexpr uint32_t kTaskStopTimeoutMs = 200;
-static void removeTree(fs::FS &fsImpl, const std::string &path);
+static DbStatus removeTree(fs::FS &fsImpl, const std::string &path);
 using DirEntry = std::pair<std::string, bool>;
 using DirEntryVector = JsonDbVector<DirEntry>;
 } // namespace
@@ -888,7 +888,10 @@ DbStatus ESPJsonDB::runSyncPass() {
 	DbStatus finalStatus{DbStatusCode::Ok, ""};
 	if (dropAll) {
 		if (_fs) {
-			removeTree(*_fs, _baseDir);
+			auto st = removeTree(*_fs, _baseDir);
+			if (!st.ok()) {
+				return setLastError(st);
+			}
 		}
 		auto st = ensureFsReady();
 		if (!st.ok()) {
@@ -1045,42 +1048,52 @@ static void listDirEntries(
 	d.close();
 }
 
-static void removeTree(fs::FS &fsImpl, const std::string &path) {
+static DbStatus removeTree(fs::FS &fsImpl, const std::string &path) {
 	// Check if path is a directory
 	bool isDir = false;
 	{
 		FrLock fs(g_fsMutex);
 		if (!fsImpl.exists(path.c_str()))
-			return;
+			return {DbStatusCode::Ok, ""};
 		File f = fsImpl.open(path.c_str());
 		if (f) {
 			isDir = f.isDirectory();
 			f.close();
+		} else {
+			return {DbStatusCode::IoError, "open path failed during recursive remove"};
 		}
 	}
 	if (!isDir) {
 		FrLock fs(g_fsMutex);
-		fsImpl.remove(path.c_str());
-		return;
+		if (!fsImpl.remove(path.c_str())) {
+			return {DbStatusCode::IoError, "remove file failed during recursive remove"};
+		}
+		return {DbStatusCode::Ok, ""};
 	}
 	// List children first without holding lock during recursion
 	DirEntryVector entries{JsonDbAllocator<DirEntry>(false)};
 	listDirEntries(fsImpl, path, entries);
 	for (auto &e : entries) {
 		if (e.second) {
-			removeTree(fsImpl, e.first);
+			auto st = removeTree(fsImpl, e.first);
+			if (!st.ok()) {
+				return st;
+			}
 		} else {
 			FrLock fs(g_fsMutex);
-			fsImpl.remove(e.first.c_str());
+			if (!fsImpl.remove(e.first.c_str())) {
+				return {DbStatusCode::IoError, "remove child file failed during recursive remove"};
+			}
 		}
 	}
 	// Finally remove the directory itself
 	{
 		FrLock fs(g_fsMutex);
-#ifdef ARDUINO_ARCH_ESP32
-		fsImpl.rmdir(path.c_str());
-#endif
+		if (!fsImpl.rmdir(path.c_str())) {
+			return {DbStatusCode::IoError, "remove directory failed during recursive remove"};
+		}
 	}
+	return {DbStatusCode::Ok, ""};
 }
 } // namespace
 
@@ -1089,9 +1102,11 @@ DbStatus ESPJsonDB::removeCollectionDir(const std::string &name) {
 	if (!dir.empty() && dir.back() != '/')
 		dir += '/';
 	dir += name;
-	if (_fs)
-		removeTree(*_fs, dir);
-	return setLastError({DbStatusCode::Ok, ""});
+	if (!_fs) {
+		return setLastError({DbStatusCode::InvalidArgument, "filesystem handle is null"});
+	}
+	auto st = removeTree(*_fs, dir);
+	return setLastError(st);
 }
 
 void ESPJsonDB::emitEvent(DBEventType ev) {

@@ -13,6 +13,14 @@ bool isHex24(const std::string &id) {
 	}
 	return true;
 }
+
+std::string collectionDirPath(const std::string &collection) {
+	return std::string("/test_db/") + collection;
+}
+
+std::string documentPath(const std::string &collection, const std::string &id) {
+	return collectionDirPath(collection) + "/" + id + ".mp";
+}
 } // namespace
 
 void DbTester::simpleDocCreate() {
@@ -228,4 +236,77 @@ void DbTester::snapshotRestoreIdLifecycleTest() {
 	}
 
 	ESP_LOGI(DB_TESTER_TAG, "Snapshot restore ID lifecycle test passed");
+}
+
+void DbTester::documentFileDeletionOnSyncTest() {
+	const std::string collection = "sync_delete_files";
+	auto clearStatus = db.dropAll();
+	if (!clearStatus.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "documentFileDeletionOnSyncTest dropAll failed: %s", clearStatus.message);
+		return;
+	}
+
+	JsonDocument firstDoc;
+	firstDoc["kind"] = "delete_one";
+	auto firstCreate = db.create(collection, firstDoc.as<JsonObjectConst>());
+	if (!firstCreate.status.ok()) {
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "documentFileDeletionOnSyncTest first create failed: %s",
+		    firstCreate.status.message
+		);
+		return;
+	}
+
+	JsonDocument secondDoc;
+	secondDoc["kind"] = "delete_many";
+	auto secondCreate = db.create(collection, secondDoc.as<JsonObjectConst>());
+	if (!secondCreate.status.ok()) {
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "documentFileDeletionOnSyncTest second create failed: %s",
+		    secondCreate.status.message
+		);
+		return;
+	}
+
+	auto seedSync = db.syncNow();
+	if (!seedSync.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "documentFileDeletionOnSyncTest seed sync failed: %s", seedSync.message);
+		return;
+	}
+
+	const std::string firstPath = documentPath(collection, firstCreate.value);
+	const std::string secondPath = documentPath(collection, secondCreate.value);
+	if (!LittleFS.exists(firstPath.c_str()) || !LittleFS.exists(secondPath.c_str())) {
+		ESP_LOGE(DB_TESTER_TAG, "documentFileDeletionOnSyncTest expected seeded files on disk");
+		return;
+	}
+
+	auto removeOne = db.removeById(collection, firstCreate.value);
+	if (!removeOne.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "documentFileDeletionOnSyncTest removeById failed: %s", removeOne.message);
+		return;
+	}
+
+	auto removeMany = db.removeMany(collection, [](const DocView &doc) {
+		return doc["kind"].as<std::string>() == "delete_many";
+	});
+	if (!removeMany.status.ok() || removeMany.value != 1) {
+		ESP_LOGE(DB_TESTER_TAG, "documentFileDeletionOnSyncTest removeMany failed");
+		return;
+	}
+
+	auto cleanupSync = db.syncNow();
+	if (!cleanupSync.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "documentFileDeletionOnSyncTest cleanup sync failed: %s", cleanupSync.message);
+		return;
+	}
+
+	if (LittleFS.exists(firstPath.c_str()) || LittleFS.exists(secondPath.c_str())) {
+		ESP_LOGE(DB_TESTER_TAG, "documentFileDeletionOnSyncTest stale document files remain after sync");
+		return;
+	}
+
+	ESP_LOGI(DB_TESTER_TAG, "Document file deletion on sync test passed");
 }

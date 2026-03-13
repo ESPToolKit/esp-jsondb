@@ -34,7 +34,9 @@ void DbTester::run() {
 	refPopulateTest();
 	idLifecycleRoundTripTest();
 	snapshotRestoreIdLifecycleTest();
+	documentFileDeletionOnSyncTest();
 	fileStorageTest();
+	fileMetadataDiscoveryTest();
 	asyncFileUploadTest();
 	asyncFileUploadRetentionBoundTest();
 	asyncFileUploadQueueOrderTest();
@@ -42,8 +44,10 @@ void DbTester::run() {
 	// Collection tests
 	simpleCollectionCreate();
 	simpleCollectionRemove();
+	collectionDirectoryCleanupOnSyncTest();
 	multiCollectionCreate(10);
 	allCollectionDrop();
+	dropAllRemovesBaseDirTest();
 	printDBDiag();
 	// Bulk tests
 	updateManyFilter();

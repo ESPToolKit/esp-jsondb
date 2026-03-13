@@ -17,6 +17,108 @@ std::string parentDirOf(const std::string &path) {
 	return path.substr(0, pos);
 }
 
+std::string fileNameOf(const std::string &path) {
+	auto pos = path.find_last_of('/');
+	if (pos == std::string::npos)
+		return path;
+	return path.substr(pos + 1);
+}
+
+struct FileEntryInfo {
+	std::string path;
+	bool isDirectory = false;
+	size_t size = 0;
+};
+
+DbStatus statFileEntry(
+    fs::FS &filesystem,
+    const std::string &absolutePath,
+    const std::string &relativePath,
+    FileEntryInfo &out
+) {
+	FrLock fs(g_fsMutex);
+	if (!filesystem.exists(absolutePath.c_str())) {
+		return {DbStatusCode::NotFound, "file not found"};
+	}
+	File file = filesystem.open(absolutePath.c_str(), FILE_READ);
+	if (!file) {
+		return {DbStatusCode::IoError, "open file info failed"};
+	}
+	out.path = relativePath;
+	out.isDirectory = file.isDirectory();
+	out.size = out.isDirectory ? 0 : file.size();
+	file.close();
+	return {DbStatusCode::Ok, ""};
+}
+
+void appendFileInfoJson(JsonArray entries, const FileEntryInfo &info) {
+	JsonObject entry = entries.add<JsonObject>();
+	entry["path"] = info.path.c_str();
+	entry["name"] = fileNameOf(info.path).c_str();
+	entry["exists"] = true;
+	entry["isDirectory"] = info.isDirectory;
+	entry["size"] = info.size;
+}
+
+DbStatus collectDirectoryEntries(
+    fs::FS &filesystem,
+    const std::string &absoluteDir,
+    const std::string &relativeDir,
+    bool recursive,
+    std::vector<FileEntryInfo> &entries
+) {
+	std::vector<std::pair<std::string, std::string>> pendingDirs;
+	{
+		FrLock fs(g_fsMutex);
+		File dir = filesystem.open(absoluteDir.c_str(), FILE_READ);
+		if (!dir || !dir.isDirectory()) {
+			if (dir)
+				dir.close();
+			return {DbStatusCode::NotFound, "file not found"};
+		}
+		for (File child = dir.openNextFile(); child; child = dir.openNextFile()) {
+			const bool isDirectory = child.isDirectory();
+			String rawName = child.name();
+			child.close();
+			std::string segment = rawName.c_str();
+			auto slash = segment.find_last_of('/');
+			if (slash != std::string::npos)
+				segment = segment.substr(slash + 1);
+			if (segment.empty())
+				continue;
+
+			FileEntryInfo info;
+			info.path = relativeDir.empty() ? segment : joinPath(relativeDir, segment);
+			info.isDirectory = isDirectory;
+			info.size = 0;
+			if (!isDirectory) {
+				const std::string childPath = joinPath(absoluteDir, segment);
+				File childFile = filesystem.open(childPath.c_str(), FILE_READ);
+				if (!childFile) {
+					dir.close();
+					return {DbStatusCode::IoError, "open child file info failed"};
+				}
+				info.size = childFile.size();
+				childFile.close();
+			}
+			entries.push_back(info);
+
+			if (recursive && isDirectory) {
+				pendingDirs.emplace_back(joinPath(absoluteDir, segment), info.path);
+			}
+		}
+		dir.close();
+	}
+
+	for (const auto &pending : pendingDirs) {
+		auto st = collectDirectoryEntries(filesystem, pending.first, pending.second, true, entries);
+		if (!st.ok())
+			return st;
+	}
+
+	return {DbStatusCode::Ok, ""};
+}
+
 DbStatus writeFromPullCb(
     fs::FS &filesystem,
     const std::string &finalPath,
@@ -422,6 +524,92 @@ DbResult<std::string> ESPJsonDB::readTextFile(const std::string &relativePath) {
 		return res;
 	}
 	res.value.assign(fr.value.begin(), fr.value.end());
+	res.status = setLastError({DbStatusCode::Ok, ""});
+	return res;
+}
+
+DbResult<JsonDocument> ESPJsonDB::getFileInfo(const std::string &relativePath) {
+	DbResult<JsonDocument> res{};
+	auto ready = ensureReady();
+	if (!ready.ok()) {
+		res.status = setLastError(ready);
+		return res;
+	}
+
+	std::string normalized;
+	auto nst = normalizeFilePath(relativePath, normalized);
+	if (!nst.ok()) {
+		res.status = setLastError(nst);
+		return res;
+	}
+
+	FileEntryInfo info;
+	const auto st = statFileEntry(*_fs, joinPath(fileRootDir(), normalized), normalized, info);
+	if (!st.ok()) {
+		res.status = setLastError(st);
+		return res;
+	}
+
+	res.value["path"] = info.path.c_str();
+	res.value["name"] = fileNameOf(info.path).c_str();
+	res.value["exists"] = true;
+	res.value["isDirectory"] = info.isDirectory;
+	res.value["size"] = info.size;
+	res.status = setLastError({DbStatusCode::Ok, ""});
+	return res;
+}
+
+DbResult<JsonDocument>
+ESPJsonDB::listFiles(const std::string &relativePrefix, bool recursive) {
+	DbResult<JsonDocument> res{};
+	auto ready = ensureReady();
+	if (!ready.ok()) {
+		res.status = setLastError(ready);
+		return res;
+	}
+
+	std::string normalizedPrefix;
+	if (!relativePrefix.empty()) {
+		auto nst = normalizeFilePath(relativePrefix, normalizedPrefix);
+		if (!nst.ok()) {
+			res.status = setLastError(nst);
+			return res;
+		}
+	}
+
+	const std::string rootPath = fileRootDir();
+	const std::string targetPath =
+	    normalizedPrefix.empty() ? rootPath : joinPath(rootPath, normalizedPrefix);
+
+	FileEntryInfo targetInfo;
+	auto st = statFileEntry(*_fs, targetPath, normalizedPrefix, targetInfo);
+	if (!st.ok()) {
+		res.status = setLastError(st);
+		return res;
+	}
+
+	std::vector<FileEntryInfo> entries;
+	if (targetInfo.isDirectory) {
+		st = collectDirectoryEntries(*_fs, targetPath, normalizedPrefix, recursive, entries);
+		if (!st.ok()) {
+			res.status = setLastError(st);
+			return res;
+		}
+	} else {
+		entries.push_back(targetInfo);
+	}
+
+	std::sort(entries.begin(), entries.end(), [](const FileEntryInfo &lhs, const FileEntryInfo &rhs) {
+		return lhs.path < rhs.path;
+	});
+
+	res.value["prefix"] = normalizedPrefix.c_str();
+	res.value["recursive"] = recursive;
+	JsonArray entriesJson = res.value["entries"].to<JsonArray>();
+	for (const auto &entry : entries) {
+		appendFileInfoJson(entriesJson, entry);
+	}
+
 	res.status = setLastError({DbStatusCode::Ok, ""});
 	return res;
 }
