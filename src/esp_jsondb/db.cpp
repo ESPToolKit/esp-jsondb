@@ -17,25 +17,180 @@ using DirEntryVector = JsonDbVector<DirEntry>;
 
 FrMutex g_fsMutex; // definition of global FS mutex
 
+DbRuntime::DbRuntime(bool usePSRAMBuffers)
+    : cols(std::less<std::string>{}, DbRuntime::CollectionMap::allocator_type(usePSRAMBuffers)),
+      schemas(std::less<std::string>{}, DbRuntime::SchemaMap::allocator_type(usePSRAMBuffers)),
+      collectionConfigs(
+          std::less<std::string>{}, DbRuntime::CollectionConfigMap::allocator_type(usePSRAMBuffers)
+      ),
+      colsToDelete(JsonDbAllocator<std::string>(usePSRAMBuffers)),
+      eventCbs(JsonDbAllocator<std::function<void(DBEventType)>>(usePSRAMBuffers)),
+      errorCbs(JsonDbAllocator<std::function<void(const DbStatus &)>>(usePSRAMBuffers)),
+      syncStatusCbs(JsonDbAllocator<std::function<void(const DBSyncStatus &)>>(usePSRAMBuffers)),
+	      pendingDelayedCollections(
+	          std::less<std::string>{}, DbRuntime::StringBoolMap::allocator_type(usePSRAMBuffers)
+	      ),
+	      diagCache{
+	          DbRuntime::StringUint32Map(
+	              std::less<std::string>{},
+	              DbRuntime::StringUint32Map::allocator_type(usePSRAMBuffers)
+	          ),
+	          0,
+	          0} {
+}
+
 DbRuntime::~DbRuntime() = default;
 
-ESPJsonDB::ESPJsonDB()
-    : _rt(std::make_unique<DbRuntime>()), _baseDir(_rt->baseDir), _cfg(_rt->cfg), _cols(_rt->cols),
-      _schemas(_rt->schemas), _collectionConfigs(_rt->collectionConfigs),
-      _colsToDelete(_rt->colsToDelete), _eventCbs(_rt->eventCbs), _errorCbs(_rt->errorCbs),
-      _syncStatusCbs(_rt->syncStatusCbs), _fs(_rt->fs), _mu(_rt->mu),
-      _lastError(_rt->lastError), _lastSyncStatus(_rt->lastSyncStatus),
-      _diagCache(_rt->diagCache), _diagCachePrimed(_rt->diagCachePrimed),
-      _initialized(_rt->initialized), _syncTask(_rt->syncTask),
-      _syncStopRequested(_rt->syncStopRequested), _syncTaskExited(_rt->syncTaskExited),
-      _syncKickRequested(_rt->syncKickRequested), _syncRequestSeq(_rt->syncRequestSeq),
-      _syncCompletedSeq(_rt->syncCompletedSeq),
-      _pendingDelayedCollections(_rt->pendingDelayedCollections),
-      _delayedPreloadPhaseCompleted(_rt->delayedPreloadPhaseCompleted),
-      _dropAllRequested(_rt->dropAllRequested), _fileStore(_rt->fileStore) {
-	_rt->fileStoreImpl = std::make_unique<FileStoreImpl>(*this, *_rt);
+uint32_t DbRuntime::stackBytesToWords(uint32_t stackBytes) {
+	const uint32_t wordSize = static_cast<uint32_t>(sizeof(StackType_t));
+	return (stackBytes + wordSize - 1U) / wordSize;
+}
+
+DbStatus DbRuntime::ensureReady() const {
+	if (!initialized.load(std::memory_order_acquire) || !fs || baseDir.empty()) {
+		return {DbStatusCode::NotInitialized, "database not initialized"};
+	}
+	return {DbStatusCode::Ok, ""};
+}
+
+void DbRuntime::emitError(const DbStatus &st) {
+	DbRuntime::ErrorCallbackVector callbacks{
+	    JsonDbAllocator<std::function<void(const DbStatus &)>>(cfg.usePSRAMBuffers)};
+	{
+		FrLock lk(mu);
+		callbacks.reserve(errorCbs.size());
+		for (auto &cb : errorCbs) {
+			callbacks.push_back(cb);
+		}
+	}
+	for (const auto &cb : callbacks) {
+		if (cb)
+			cb(st);
+	}
+}
+
+DbStatus DbRuntime::recordStatus(const DbStatus &st) {
+	lastError = st;
+	if (!st.ok()) {
+		emitError(st);
+	}
+	return st;
+}
+
+void DbRuntime::emitEvent(DBEventType ev) {
+	DbRuntime::EventCallbackVector callbacks{
+	    JsonDbAllocator<std::function<void(DBEventType)>>(cfg.usePSRAMBuffers)};
+	{
+		FrLock lk(mu);
+		callbacks.reserve(eventCbs.size());
+		for (auto &cb : eventCbs) {
+			callbacks.push_back(cb);
+		}
+	}
+	for (const auto &cb : callbacks) {
+		if (cb)
+			cb(ev);
+	}
+}
+
+void DbRuntime::noteDocumentCreated(const std::string &collectionName, uint32_t count) {
+	if (collectionName.empty() || count == 0)
+		return;
+	FrLock lk(mu);
+	if (!diagCachePrimed)
+		return;
+	uint32_t &docs = diagCache.docsPerCollection[collectionName];
+	if (docs == 0) {
+		++diagCache.collections;
+	}
+	docs += count;
+	diagCache.lastRefreshMs = millis();
+}
+
+void DbRuntime::noteDocumentDeleted(const std::string &collectionName, uint32_t count) {
+	if (collectionName.empty() || count == 0)
+		return;
+	FrLock lk(mu);
+	if (!diagCachePrimed)
+		return;
+	auto it = diagCache.docsPerCollection.find(collectionName);
+	if (it == diagCache.docsPerCollection.end())
+		return;
+	if (it->second <= count) {
+		diagCache.docsPerCollection.erase(it);
+		if (diagCache.collections > 0)
+			--diagCache.collections;
+	} else {
+		it->second -= count;
+	}
+	diagCache.lastRefreshMs = millis();
+}
+
+std::string DbRuntime::fileRootDir() const {
+	return joinPath(baseDir, "_files");
+}
+
+bool DbRuntime::createTask(
+    TaskFunction_t entry, const char *name, void *arg, TaskHandle_t &outHandle
+) {
+	const uint32_t stackDepthWords = stackBytesToWords(cfg.stackSize);
+	BaseType_t rc =
+	    xTaskCreatePinnedToCore(entry, name, stackDepthWords, arg, cfg.priority, &outHandle, cfg.coreId);
+	return rc == pdPASS;
+}
+
+void DbRuntime::stopTask(
+    TaskHandle_t &taskHandle, std::atomic<bool> &stopRequested, std::atomic<bool> &taskExited
+) {
+	if (taskHandle == nullptr)
+		return;
+	stopRequested.store(true, std::memory_order_release);
+	const uint32_t startMs = millis();
+	while (!taskExited.load(std::memory_order_acquire)) {
+		if ((millis() - startMs) >= kTaskStopTimeoutMs) {
+			break;
+		}
+		vTaskDelay(pdMS_TO_TICKS(1));
+	}
+	if (!taskExited.load(std::memory_order_acquire)) {
+		vTaskDelete(taskHandle);
+		taskExited.store(true, std::memory_order_release);
+	}
+	taskHandle = nullptr;
+}
+
+ESPJsonDB::ESPJsonDB() : _rt(std::make_unique<DbRuntime>()) {
+	_rt->owner = this;
+	_rt->fileStoreImpl = std::make_unique<FileStoreImpl>(*_rt);
 	_rt->fileStore = std::make_unique<FileStore>(_rt->fileStoreImpl.get());
 }
+
+#define _baseDir (_rt->baseDir)
+#define _cfg (_rt->cfg)
+#define _cols (_rt->cols)
+#define _schemas (_rt->schemas)
+#define _collectionConfigs (_rt->collectionConfigs)
+#define _colsToDelete (_rt->colsToDelete)
+#define _eventCbs (_rt->eventCbs)
+#define _errorCbs (_rt->errorCbs)
+#define _syncStatusCbs (_rt->syncStatusCbs)
+#define _fs (_rt->fs)
+#define _mu (_rt->mu)
+#define _lastError (_rt->lastError)
+#define _lastSyncStatus (_rt->lastSyncStatus)
+#define _diagCache (_rt->diagCache)
+#define _diagCachePrimed (_rt->diagCachePrimed)
+#define _initialized (_rt->initialized)
+#define _syncTask (_rt->syncTask)
+#define _syncStopRequested (_rt->syncStopRequested)
+#define _syncTaskExited (_rt->syncTaskExited)
+#define _syncKickRequested (_rt->syncKickRequested)
+#define _syncRequestSeq (_rt->syncRequestSeq)
+#define _syncCompletedSeq (_rt->syncCompletedSeq)
+#define _pendingDelayedCollections (_rt->pendingDelayedCollections)
+#define _delayedPreloadPhaseCompleted (_rt->delayedPreloadPhaseCompleted)
+#define _dropAllRequested (_rt->dropAllRequested)
+#define _fileStore (_rt->fileStore)
 
 bool ESPJsonDB::isInitialized() const {
 	return _initialized.load(std::memory_order_acquire);
@@ -46,7 +201,11 @@ DbStatus ESPJsonDB::lastError() const {
 }
 
 DbStatus ESPJsonDB::recordStatus(const DbStatus &st) {
-	return setLastError(st);
+	return _rt->recordStatus(st);
+}
+
+DbStatus ESPJsonDB::setLastError(const DbStatus &st) {
+	return _rt->recordStatus(st);
 }
 
 FileStore &ESPJsonDB::files() {
@@ -57,38 +216,28 @@ const FileStore &ESPJsonDB::files() const {
 	return *_fileStore;
 }
 
-DbStatus ESPJsonDB::setLastError(const DbStatus &st) {
-	_lastError = st;
-	if (!st.ok())
-		emitError(st);
-	return st;
-}
-
 DbStatus ESPJsonDB::ensureFsReady() {
 	_fs = _cfg.fs ? _cfg.fs : &LittleFS;
 	if (!_fs) {
-		return setLastError({DbStatusCode::InvalidArgument, "filesystem handle is null"});
+		return _rt->recordStatus({DbStatusCode::InvalidArgument, "filesystem handle is null"});
 	}
 	if (_cfg.initFileSystem && _fs == &LittleFS) {
 		if (!LittleFS
 		         .begin(_cfg.formatOnFail, "/littlefs", _cfg.maxOpenFiles, _cfg.partitionLabel)) {
-			return setLastError({DbStatusCode::IoError, "LittleFS.begin failed"});
+			return _rt->recordStatus({DbStatusCode::IoError, "LittleFS.begin failed"});
 		}
 	}
 	if (!fsEnsureDir(*_fs, _baseDir)) {
-		return setLastError({DbStatusCode::IoError, "mkdir baseDir failed"});
+		return _rt->recordStatus({DbStatusCode::IoError, "mkdir baseDir failed"});
 	}
 	if (!fsEnsureDir(*_fs, fileRootDir())) {
-		return setLastError({DbStatusCode::IoError, "mkdir file root failed"});
+		return _rt->recordStatus({DbStatusCode::IoError, "mkdir file root failed"});
 	}
-	return setLastError({DbStatusCode::Ok, ""});
+	return _rt->recordStatus({DbStatusCode::Ok, ""});
 }
 
 DbStatus ESPJsonDB::ensureReady() const {
-	if (!isInitialized() || !_fs || _baseDir.empty()) {
-		return {DbStatusCode::NotInitialized, "database not initialized"};
-	}
-	return {DbStatusCode::Ok, ""};
+	return _rt->ensureReady();
 }
 
 void ESPJsonDB::rebindAllocatorAwareStateLocked(bool preserveData) {
@@ -105,22 +254,23 @@ void ESPJsonDB::rebindAllocatorAwareStateLocked(bool preserveData) {
 	auto oldDiagDocs = std::move(_diagCache.docsPerCollection);
 	const DBSyncStatus oldLastSyncStatus = _lastSyncStatus;
 
-	CollectionMap newCols{
-	    std::less<std::string>{}, CollectionMap::allocator_type(usePSRAMBuffers)};
-	SchemaMap newSchemas{std::less<std::string>{}, SchemaMap::allocator_type(usePSRAMBuffers)};
-	CollectionConfigMap newCollectionConfigs{
-	    std::less<std::string>{}, CollectionConfigMap::allocator_type(usePSRAMBuffers)};
-	StringVector newColsToDelete{JsonDbAllocator<std::string>(usePSRAMBuffers)};
-	EventCallbackVector newEventCbs{
+	DbRuntime::CollectionMap newCols{
+	    std::less<std::string>{}, DbRuntime::CollectionMap::allocator_type(usePSRAMBuffers)};
+	DbRuntime::SchemaMap newSchemas{
+	    std::less<std::string>{}, DbRuntime::SchemaMap::allocator_type(usePSRAMBuffers)};
+	DbRuntime::CollectionConfigMap newCollectionConfigs{
+	    std::less<std::string>{}, DbRuntime::CollectionConfigMap::allocator_type(usePSRAMBuffers)};
+	DbRuntime::StringVector newColsToDelete{JsonDbAllocator<std::string>(usePSRAMBuffers)};
+	DbRuntime::EventCallbackVector newEventCbs{
 	    JsonDbAllocator<std::function<void(DBEventType)>>(usePSRAMBuffers)};
-	ErrorCallbackVector newErrorCbs{
+	DbRuntime::ErrorCallbackVector newErrorCbs{
 	    JsonDbAllocator<std::function<void(const DbStatus &)>>(usePSRAMBuffers)};
-	SyncStatusCallbackVector newSyncStatusCbs{
+	DbRuntime::SyncStatusCallbackVector newSyncStatusCbs{
 	    JsonDbAllocator<std::function<void(const DBSyncStatus &)>>(usePSRAMBuffers)};
-	StringBoolMap newPendingDelayed{
-	    std::less<std::string>{}, StringBoolMap::allocator_type(usePSRAMBuffers)};
-	StringUint32Map newDiagDocs{
-	    std::less<std::string>{}, StringUint32Map::allocator_type(usePSRAMBuffers)};
+	DbRuntime::StringBoolMap newPendingDelayed{
+	    std::less<std::string>{}, DbRuntime::StringBoolMap::allocator_type(usePSRAMBuffers)};
+	DbRuntime::StringUint32Map newDiagDocs{
+	    std::less<std::string>{}, DbRuntime::StringUint32Map::allocator_type(usePSRAMBuffers)};
 
 	if (preserveData) {
 		newColsToDelete.reserve(oldColsToDelete.size());
@@ -174,43 +324,14 @@ void ESPJsonDB::rebindAllocatorAwareStateLocked(bool preserveData) {
 	}
 }
 
-uint32_t ESPJsonDB::stackBytesToWords(uint32_t stackBytes) {
-	const uint32_t wordSize = static_cast<uint32_t>(sizeof(StackType_t));
-	return (stackBytes + wordSize - 1U) / wordSize;
-}
-
 bool ESPJsonDB::createTask(TaskFunction_t entry, const char *name, TaskHandle_t &outHandle) {
-	const uint32_t stackDepthWords = stackBytesToWords(_cfg.stackSize);
-	BaseType_t rc = xTaskCreatePinnedToCore(
-	    entry,
-	    name,
-	    stackDepthWords,
-	    this,
-	    _cfg.priority,
-	    &outHandle,
-	    _cfg.coreId
-	);
-	return rc == pdPASS;
+	return _rt->createTask(entry, name, this, outHandle);
 }
 
 void ESPJsonDB::stopTask(
     TaskHandle_t &taskHandle, std::atomic<bool> &stopRequested, std::atomic<bool> &taskExited
 ) {
-	if (taskHandle == nullptr)
-		return;
-	stopRequested.store(true, std::memory_order_release);
-	const uint32_t startMs = millis();
-	while (!taskExited.load(std::memory_order_acquire)) {
-		if ((millis() - startMs) >= kTaskStopTimeoutMs) {
-			break;
-		}
-		vTaskDelay(pdMS_TO_TICKS(1));
-	}
-	if (!taskExited.load(std::memory_order_acquire)) {
-		vTaskDelete(taskHandle);
-		taskExited.store(true, std::memory_order_release);
-	}
-	taskHandle = nullptr;
+	_rt->stopTask(taskHandle, stopRequested, taskExited);
 }
 
 bool ESPJsonDB::isReservedName(const std::string &name) const {
@@ -218,7 +339,7 @@ bool ESPJsonDB::isReservedName(const std::string &name) const {
 }
 
 std::string ESPJsonDB::fileRootDir() const {
-	return joinPath(_baseDir, "_files");
+	return _rt->fileRootDir();
 }
 
 void ESPJsonDB::rebuildDelayedCollectionStateFromConfigLocked() {
@@ -281,7 +402,7 @@ DbStatus ESPJsonDB::preloadCollectionFromFsByName(
 	}
 
 	auto col = std::make_unique<Collection>(
-	    *this, name, sc, _baseDir, collectionCfg, _cfg.usePSRAMBuffers, *_fs
+	    *_rt, name, sc, _baseDir, collectionCfg, _cfg.usePSRAMBuffers, *_fs
 	);
 	auto st = col->loadFromFs(_baseDir);
 	if (!st.ok())
@@ -514,7 +635,7 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 		rebindAllocatorAwareStateLocked(true);
 		_cols.clear();
 		_colsToDelete.clear();
-		_rt->fileStoreImpl = std::make_unique<FileStoreImpl>(*this, *_rt);
+		_rt->fileStoreImpl = std::make_unique<FileStoreImpl>(*_rt);
 		_fileStore = std::make_unique<FileStore>(_rt->fileStoreImpl.get());
 		rebuildDelayedCollectionStateFromConfigLocked();
 		_dropAllRequested = false;
@@ -728,7 +849,7 @@ DbResult<Collection *> ESPJsonDB::collection(const std::string &name) {
 		}
 	}
 	auto col = std::make_unique<Collection>(
-	    *this, name, sc, _baseDir, collectionCfg, _cfg.usePSRAMBuffers, *_fs
+	    *_rt, name, sc, _baseDir, collectionCfg, _cfg.usePSRAMBuffers, *_fs
 	);
 	Collection *ptr = nullptr;
 	bool created = false;
@@ -948,7 +1069,7 @@ DbStatus ESPJsonDB::syncNow() {
 
 DbStatus ESPJsonDB::runSyncPass() {
 	// Snapshot work under lock
-	StringVector colsToDrop{JsonDbAllocator<std::string>(_cfg.usePSRAMBuffers)};
+	DbRuntime::StringVector colsToDrop{JsonDbAllocator<std::string>(_cfg.usePSRAMBuffers)};
 	JsonDbVector<Collection *> cols{JsonDbAllocator<Collection *>(_cfg.usePSRAMBuffers)};
 	bool dropAll = false;
 	{
@@ -1416,10 +1537,10 @@ JsonDocument ESPJsonDB::getDiagnostics() {
 	const bool usePSRAMBuffers = _cfg.usePSRAMBuffers;
 
 	// Snapshot state under lock
-	StringUint32Map cached{
-	    std::less<std::string>{}, StringUint32Map::allocator_type(usePSRAMBuffers)};
-	StringUint32Map live{
-	    std::less<std::string>{}, StringUint32Map::allocator_type(usePSRAMBuffers)};
+	DbRuntime::StringUint32Map cached{
+	    std::less<std::string>{}, DbRuntime::StringUint32Map::allocator_type(usePSRAMBuffers)};
+	DbRuntime::StringUint32Map live{
+	    std::less<std::string>{}, DbRuntime::StringUint32Map::allocator_type(usePSRAMBuffers)};
 	uint32_t lastRefreshMs = 0;
 	// Copy of configuration for reporting
 	ESPJsonDBConfig cfgCopy{};
@@ -1440,7 +1561,8 @@ JsonDocument ESPJsonDB::getDiagnostics() {
 	// Per-collection document counts
 	auto per = doc["documentsPerCollection"].to<JsonObject>();
 	// Union of keys: prefer live counts for loaded collections
-	StringBoolMap seen{std::less<std::string>{}, StringBoolMap::allocator_type(usePSRAMBuffers)};
+	DbRuntime::StringBoolMap seen{
+	    std::less<std::string>{}, DbRuntime::StringBoolMap::allocator_type(usePSRAMBuffers)};
 	for (auto &kv : live) {
 		per[kv.first.c_str()] = kv.second;
 		seen[kv.first] = true;
@@ -1507,7 +1629,7 @@ DbStatus ESPJsonDB::dropAll() {
 		}
 		_cols.clear();
 		_colsToDelete.clear();
-		_rt->fileStoreImpl = std::make_unique<FileStoreImpl>(*this, *_rt);
+		_rt->fileStoreImpl = std::make_unique<FileStoreImpl>(*_rt);
 		_fileStore = std::make_unique<FileStore>(_rt->fileStoreImpl.get());
 		_pendingDelayedCollections.clear();
 		_delayedPreloadPhaseCompleted = true;
@@ -1529,8 +1651,8 @@ std::vector<std::string> ESPJsonDB::listCollectionNames() {
 	}
 	std::vector<std::string> names;
 	// Use a set to avoid duplicates
-	StringBoolMap seen{
-	    std::less<std::string>{}, StringBoolMap::allocator_type(_cfg.usePSRAMBuffers)};
+	DbRuntime::StringBoolMap seen{
+	    std::less<std::string>{}, DbRuntime::StringBoolMap::allocator_type(_cfg.usePSRAMBuffers)};
 	{
 		FrLock lk(_mu);
 		for (auto &kv : _cols) {
@@ -1563,7 +1685,7 @@ DbStatus ESPJsonDB::changeConfig(const ESPJsonDBConfig &cfg) {
 		stopSyncTaskUnlocked();
 		_cfg = cfg;
 		rebindAllocatorAwareStateLocked(true);
-		_rt->fileStoreImpl = std::make_unique<FileStoreImpl>(*this, *_rt);
+		_rt->fileStoreImpl = std::make_unique<FileStoreImpl>(*_rt);
 		_fileStore = std::make_unique<FileStore>(_rt->fileStoreImpl.get());
 		rebuildDelayedCollectionStateFromConfigLocked();
 	}
@@ -1728,8 +1850,8 @@ DbStatus ESPJsonDB::restoreFromSnapshot(const JsonDocument &snapshot) {
 void ESPJsonDB::refreshDiagFromFs() {
 	if (!_fs)
 		return;
-	StringUint32Map perCol{
-	    std::less<std::string>{}, StringUint32Map::allocator_type(_cfg.usePSRAMBuffers)};
+	DbRuntime::StringUint32Map perCol{
+	    std::less<std::string>{}, DbRuntime::StringUint32Map::allocator_type(_cfg.usePSRAMBuffers)};
 	uint32_t colCount = 0;
 	{
 		FrLock fs(g_fsMutex);

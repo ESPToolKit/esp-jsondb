@@ -1,5 +1,6 @@
 #include "collection.h"
 #include "../db.h"
+#include "../db_runtime.h"
 #include "../utils/fs_utils.h"
 #include "../utils/time_utils.h"
 
@@ -12,13 +13,25 @@ std::shared_ptr<DocumentRecord> makeSharedDocumentRecord(bool usePSRAMBuffers) {
 	    JsonDbAllocator<DocumentRecord>(usePSRAMBuffers), usePSRAMBuffers
 	);
 }
+
+using DocumentRecordPtr = std::shared_ptr<DocumentRecord>;
+using DocumentMapValue = std::pair<const DocId, DocumentRecordPtr>;
+using DocumentMapAllocator = JsonDbAllocator<DocumentMapValue>;
+using DocumentMap = std::map<DocId, DocumentRecordPtr, DocIdLess, DocumentMapAllocator>;
+using UniqueValueMap = std::map<std::string, DocId, std::less<std::string>,
+                                JsonDbAllocator<std::pair<const std::string, DocId>>>;
+using UniqueIndexMap =
+    std::map<std::string,
+             UniqueValueMap,
+             std::less<std::string>,
+             JsonDbAllocator<std::pair<const std::string, UniqueValueMap>>>;
 } // namespace
 
 struct CollectionStore {
-	Collection::DocumentMap docs;
+	DocumentMap docs;
 	JsonDbVector<DocId> deletedIds;
 	JsonDbVector<DocId> knownIds;
-	ESPJsonDB *db = nullptr;
+	DbRuntime *rt = nullptr;
 	std::string name;
 	Schema schema;
 	CollectionConfig config{};
@@ -28,12 +41,12 @@ struct CollectionStore {
 	bool usePSRAMBuffers = false;
 	fs::FS *fs = nullptr;
 	RecordStore recordStore;
-	Collection::UniqueIndexMap uniqueIndexes;
+	UniqueIndexMap uniqueIndexes;
 	uint64_t accessClock = 0;
 	size_t activeDecodedViews = 0;
 
 	CollectionStore(
-	    ESPJsonDB &dbRef,
+	    DbRuntime &rtRef,
 	    const std::string &collectionName,
 	    const Schema &collectionSchema,
 	    std::string baseDirValue,
@@ -41,22 +54,20 @@ struct CollectionStore {
 	    bool psram,
 	    fs::FS &filesystem
 	)
-	    : docs(Collection::DocumentMap(
-	          DocIdLess{}, Collection::DocumentMapAllocator(psram)
-	      )),
+	    : docs(DocumentMap(DocIdLess{}, DocumentMapAllocator(psram))),
 	      deletedIds(JsonDbAllocator<DocId>(psram)), knownIds(JsonDbAllocator<DocId>(psram)),
-	      db(&dbRef), name(collectionName), schema(collectionSchema), config(collectionConfig),
+	      rt(&rtRef), name(collectionName), schema(collectionSchema), config(collectionConfig),
 	      baseDir(std::move(baseDirValue)), usePSRAMBuffers(psram), fs(&filesystem),
 	      recordStore(filesystem, psram),
 	      uniqueIndexes(
 	          std::less<std::string>{},
-	          JsonDbAllocator<std::pair<const std::string, Collection::UniqueValueMap>>(psram)
+	          JsonDbAllocator<std::pair<const std::string, UniqueValueMap>>(psram)
 	      ) {
 	}
 };
 
 Collection::Collection(
-    ESPJsonDB &db,
+    DbRuntime &rt,
     const std::string &name,
     const Schema &schema,
     std::string baseDir,
@@ -65,15 +76,52 @@ Collection::Collection(
     fs::FS &fs
 )
     : _store(std::make_unique<CollectionStore>(
-          db, name, schema, std::move(baseDir), config, usePSRAMBuffers, fs
-      )),
-      _db(_store->db), _name(_store->name), _schema(_store->schema), _config(_store->config),
-      _docs(_store->docs), _dirty(_store->dirty), _deletedIds(_store->deletedIds),
-      _mu(_store->mu), _baseDir(_store->baseDir), _usePSRAMBuffers(_store->usePSRAMBuffers),
-      _fs(_store->fs), _recordStore(_store->recordStore), _uniqueIndexes(_store->uniqueIndexes) {
+          rt, name, schema, std::move(baseDir), config, usePSRAMBuffers, fs
+      )) {
 }
 
 Collection::~Collection() = default;
+
+#define _rt (_store->rt)
+#define _name (_store->name)
+#define _schema (_store->schema)
+#define _config (_store->config)
+#define _docs (_store->docs)
+#define _dirty (_store->dirty)
+#define _deletedIds (_store->deletedIds)
+#define _mu (_store->mu)
+#define _baseDir (_store->baseDir)
+#define _usePSRAMBuffers (_store->usePSRAMBuffers)
+#define _fs (_store->fs)
+#define _recordStore (_store->recordStore)
+#define _uniqueIndexes (_store->uniqueIndexes)
+
+const std::string &Collection::name() const {
+	return _name;
+}
+
+const CollectionConfig &Collection::config() const {
+	return _config;
+}
+
+bool Collection::isDirty() const {
+	return _dirty;
+}
+
+void Collection::clearDirty() {
+	_dirty = false;
+}
+
+size_t Collection::size() const {
+	return _docs.size();
+}
+
+void Collection::markAllRemoved() {
+	FrLock lk(_mu);
+	for (auto &kv : _docs) {
+		kv.second->meta.removed = true;
+	}
+}
 
 void Collection::setConfig(const CollectionConfig &config) {
 	FrLock lk(_mu);
@@ -88,18 +136,18 @@ void Collection::setSchema(const Schema &schema) {
 }
 
 DbStatus Collection::recordStatus(const DbStatus &st) const {
-	return _db ? _db->recordStatus(st) : st;
+	return _rt ? _rt->recordStatus(st) : st;
 }
 
 void Collection::emitEvent(DBEventType ev) const {
-	if (_db)
-		_db->emitEvent(ev);
+	if (_rt)
+		_rt->emitEvent(ev);
 }
 
 void Collection::noteDeletedInDiag(size_t count) const {
-	if (count == 0 || !_db)
+	if (count == 0 || !_rt)
 		return;
-	_db->noteDocumentDeleted(_name, static_cast<uint32_t>(count));
+	_rt->noteDocumentDeleted(_name, static_cast<uint32_t>(count));
 }
 
 bool Collection::isResidentBudgetEnforced() const {
@@ -428,8 +476,8 @@ DbResult<std::string> Collection::create(JsonObjectConst data) {
 		emit = true;
 	}
 	if (emit) {
-		if (_db)
-			_db->noteDocumentCreated(_name);
+		if (_rt)
+			_rt->noteDocumentCreated(_name);
 		emitEvent(DBEventType::DocumentCreated);
 	}
 	return res;
@@ -482,14 +530,35 @@ DbResult<DocView> Collection::findById(const std::string &id) {
 	if (!lookupId.assign(id)) {
 		DbStatus st{DbStatusCode::NotFound, "document not found"};
 		recordStatus(st);
-		return {st, DocView(nullptr, &_schema, nullptr, _db, nullptr, nullptr, nullptr, nullptr, nullptr, false, _usePSRAMBuffers)};
+		return {st,
+		        DocView(nullptr,
+		                &_schema,
+		                nullptr,
+		                _rt ? _rt->owner : nullptr,
+		                nullptr,
+		                nullptr,
+		                nullptr,
+		                nullptr,
+		                nullptr,
+		                false,
+		                _usePSRAMBuffers)};
 	}
 
 	auto loaded = ensureRecordLoaded(lookupId);
 	if (!loaded.status.ok()) {
 		recordStatus(loaded.status);
 		return {loaded.status,
-		        DocView(nullptr, &_schema, nullptr, _db, nullptr, nullptr, nullptr, nullptr, nullptr, false, _usePSRAMBuffers)};
+		        DocView(nullptr,
+		                &_schema,
+		                nullptr,
+		                _rt ? _rt->owner : nullptr,
+		                nullptr,
+		                nullptr,
+		                nullptr,
+		                nullptr,
+		                nullptr,
+		                false,
+		                _usePSRAMBuffers)};
 	}
 	DbStatus st{DbStatusCode::Ok, ""};
 	recordStatus(st);
@@ -518,7 +587,17 @@ DbResult<DocView> Collection::findOne(std::function<bool(const DocView &)> pred)
 	auto idsRes = collectMatchingIds(std::move(pred));
 	if (!idsRes.status.ok()) {
 		return {idsRes.status,
-		        DocView(nullptr, &_schema, nullptr, _db, nullptr, nullptr, nullptr, nullptr, nullptr, false, _usePSRAMBuffers)};
+		        DocView(nullptr,
+		                &_schema,
+		                nullptr,
+		                _rt ? _rt->owner : nullptr,
+		                nullptr,
+		                nullptr,
+		                nullptr,
+		                nullptr,
+		                nullptr,
+		                false,
+		                _usePSRAMBuffers)};
 	}
 	if (!idsRes.value.empty()) {
 		auto loaded = ensureRecordLoaded(idsRes.value.front());
@@ -530,7 +609,18 @@ DbResult<DocView> Collection::findOne(std::function<bool(const DocView &)> pred)
 	}
 	DbStatus st{DbStatusCode::NotFound, "document not found"};
 	recordStatus(st);
-	return {st, DocView(nullptr, &_schema, nullptr, _db, nullptr, nullptr, nullptr, nullptr, nullptr, false, _usePSRAMBuffers)};
+	return {st,
+	        DocView(nullptr,
+	                &_schema,
+	                nullptr,
+	                _rt ? _rt->owner : nullptr,
+	                nullptr,
+	                nullptr,
+	                nullptr,
+	                nullptr,
+	                nullptr,
+	                false,
+	                _usePSRAMBuffers)};
 }
 
 DbResult<DocView> Collection::findOne(const JsonDocument &filter) {
@@ -572,7 +662,17 @@ DbResult<JsonDbVector<DocId>> Collection::collectMatchingIds(
 			if (it == _docs.end())
 				continue;
 			touchRecordLocked(it->second);
-			DocView v(it->second, &_schema, nullptr, _db, nullptr, nullptr, nullptr, nullptr, nullptr, false, _usePSRAMBuffers);
+			DocView v(it->second,
+			          &_schema,
+			          nullptr,
+			          _rt ? _rt->owner : nullptr,
+			          nullptr,
+			          nullptr,
+			          nullptr,
+			          nullptr,
+			          nullptr,
+			          false,
+			          _usePSRAMBuffers);
 			matched = !pred || pred(v);
 		}
 		if (matched) {
@@ -613,7 +713,17 @@ DbStatus Collection::updateOne(
 		rec->meta.dirty = true;
 		touchRecordLocked(rec);
 
-		DocView v(rec, &_schema, nullptr, _db, nullptr, nullptr, nullptr, nullptr, nullptr, false, _usePSRAMBuffers);
+		DocView v(rec,
+		          &_schema,
+		          nullptr,
+		          _rt ? _rt->owner : nullptr,
+		          nullptr,
+		          nullptr,
+		          nullptr,
+		          nullptr,
+		          nullptr,
+		          false,
+		          _usePSRAMBuffers);
 		// Initialize as empty object then let mutator fill values
 		v.asObject();
 		mutator(v);
@@ -648,8 +758,8 @@ DbStatus Collection::updateOne(
 		st = {DbStatusCode::Ok, ""};
 	}
 	if (created) {
-		if (_db)
-			_db->noteDocumentCreated(_name);
+		if (_rt)
+			_rt->noteDocumentCreated(_name);
 		emitEvent(DBEventType::DocumentCreated);
 	} else if (updated) {
 		emitEvent(DBEventType::DocumentUpdated);
@@ -695,7 +805,17 @@ DbStatus Collection::updateOne(const JsonDocument &filter, const JsonDocument &p
 		rec->meta.dirty = true;
 		touchRecordLocked(rec);
 
-		DocView v(rec, &_schema, nullptr, _db, nullptr, nullptr, nullptr, nullptr, nullptr, false, _usePSRAMBuffers);
+		DocView v(rec,
+		          &_schema,
+		          nullptr,
+		          _rt ? _rt->owner : nullptr,
+		          nullptr,
+		          nullptr,
+		          nullptr,
+		          nullptr,
+		          nullptr,
+		          false,
+		          _usePSRAMBuffers);
 		auto obj = v.asObject();
 		for (auto kvf : filter.as<JsonObjectConst>()) {
 			obj[kvf.key().c_str()] = kvf.value();
@@ -733,8 +853,8 @@ DbStatus Collection::updateOne(const JsonDocument &filter, const JsonDocument &p
 		st = {DbStatusCode::Ok, ""};
 	}
 	if (created) {
-		if (_db)
-			_db->noteDocumentCreated(_name);
+		if (_rt)
+			_rt->noteDocumentCreated(_name);
 		emitEvent(DBEventType::DocumentCreated);
 	} else if (updated) {
 		emitEvent(DBEventType::DocumentUpdated);
@@ -795,7 +915,17 @@ DbStatus Collection::updateByIdWithDecision(
 	candidate->meta = liveRec->meta;
 	candidate->msgpack = liveRec->msgpack;
 	DocView working(
-	    candidate, &_schema, nullptr, _db, nullptr, nullptr, nullptr, nullptr, nullptr, false, _usePSRAMBuffers
+	    candidate,
+	    &_schema,
+	    nullptr,
+	    _rt ? _rt->owner : nullptr,
+	    nullptr,
+	    nullptr,
+	    nullptr,
+	    nullptr,
+	    nullptr,
+	    false,
+	    _usePSRAMBuffers
 	);
 	bool shouldCommit = mutator ? mutator(working) : true;
 	if (!shouldCommit) {
@@ -864,9 +994,17 @@ DbStatus Collection::removeById(const std::string &id) {
 		auto it = _docs.find(lookupId);
 		if (it == _docs.end())
 			return recordStatus({DbStatusCode::NotFound, "document not found"});
-		DocView view(
-		    it->second, &_schema, nullptr, _db, nullptr, nullptr, nullptr, nullptr, nullptr, false, _usePSRAMBuffers
-		);
+		DocView view(it->second,
+		             &_schema,
+		             nullptr,
+		             _rt ? _rt->owner : nullptr,
+		             nullptr,
+		             nullptr,
+		             nullptr,
+		             nullptr,
+		             nullptr,
+		             false,
+		             _usePSRAMBuffers);
 		removeUniqueValuesLocked(view.asObjectConst(), it->first);
 		it->second->meta.removed = true;
 		_deletedIds.push_back(it->first);
@@ -876,8 +1014,8 @@ DbStatus Collection::removeById(const std::string &id) {
 		removed = true;
 	}
 	if (removed) {
-		if (_db)
-			_db->noteDocumentDeleted(_name);
+		if (_rt)
+			_rt->noteDocumentDeleted(_name);
 		emitEvent(DBEventType::DocumentDeleted);
 	}
 	return recordStatus(st);
@@ -937,7 +1075,7 @@ DocView Collection::makeView(std::shared_ptr<DocumentRecord> rec) {
 	    std::move(rec),
 	    &_schema,
 	    nullptr,
-	    _db,
+	    _rt ? _rt->owner : nullptr,
 	    nullptr,
 	    acquireDecode,
 	    releaseDecode,

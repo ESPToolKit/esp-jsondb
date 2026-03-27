@@ -34,6 +34,9 @@ void DbTester::run() {
 	refPopulateTest();
 	idLifecycleRoundTripTest();
 	snapshotRestoreIdLifecycleTest();
+	docCodecCompatibilityTest();
+	optimisticConflictTest();
+	collectionBudgetEnforcementTest();
 	documentFileDeletionOnSyncTest();
 	fileStorageTest();
 	fileMetadataDiscoveryTest();

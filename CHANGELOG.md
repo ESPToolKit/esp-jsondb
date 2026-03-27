@@ -8,6 +8,8 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 ### Changed
 - Moved mutable DB ownership behind an internal runtime and moved file upload / path handling behind a real `FileStore` subsystem.
 - `Collection` now uses an internal backing store, enforces `maxDecodedViews` / `maxRecordsInMemory`, and applies revision-based conflict checks in update paths.
+- `ESPJsonDB` and `Collection` headers are now thin façades over internal runtime / store state instead of exposing runtime-owned reference members.
+- `.jdb` writes now use a single authoritative prefix `flags` field; decode still accepts the interim duplicated-`flags` v2 envelope.
 
 ### Removed
 - Compatibility aliases `getDiag()`, `getAllCollectionName()`, and `unRegisterSchema()`.

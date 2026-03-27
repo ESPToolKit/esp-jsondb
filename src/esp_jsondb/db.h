@@ -170,22 +170,6 @@ class ESPJsonDB {
 	void noteDocumentDeleted(const std::string &collectionName, uint32_t count = 1);
 
   private:
-	using CollectionMap = JsonDbMap<std::string, std::unique_ptr<Collection>>;
-	using SchemaMap = JsonDbMap<std::string, Schema>;
-	using StringBoolMap = JsonDbMap<std::string, bool>;
-	using CollectionConfigMap = JsonDbMap<std::string, CollectionConfig>;
-	using StringUint32Map = JsonDbMap<std::string, uint32_t>;
-	using StringVector = JsonDbVector<std::string>;
-	using EventCallbackVector = JsonDbVector<std::function<void(DBEventType)>>;
-	using ErrorCallbackVector = JsonDbVector<std::function<void(const DbStatus &)>>;
-	using SyncStatusCallbackVector = JsonDbVector<std::function<void(const DBSyncStatus &)>>;
-
-	struct DiagCache {
-		StringUint32Map docsPerCollection;
-		uint32_t collections = 0;
-		uint32_t lastRefreshMs = 0; // millis when refreshed from FS
-	};
-
 	// sync task
 	static void syncTaskThunk(void *arg);
 	void syncTaskLoop();
@@ -193,7 +177,6 @@ class ESPJsonDB {
 	void startSyncTaskUnlocked();
 	void stopSyncTaskUnlocked();
 
-	// Update last error/status helper
 	DbStatus setLastError(const DbStatus &st);
 	void emitSyncStatus(const DBSyncStatus &status);
 	void emitSyncStatus(
@@ -229,36 +212,8 @@ class ESPJsonDB {
 	// Refresh diag cache from filesystem (expensive; used only for explicit full refresh paths)
 	void refreshDiagFromFs();
 	DbStatus preloadCollectionsFromFs(bool emitStatus, DBSyncSource statusSource);
-	friend struct DbRuntime;
-	friend struct FileStoreImpl;
 
 	std::unique_ptr<DbRuntime> _rt;
-	std::string &_baseDir;
-	ESPJsonDBConfig &_cfg;
-	CollectionMap &_cols;
-	SchemaMap &_schemas;
-	CollectionConfigMap &_collectionConfigs;
-	StringVector &_colsToDelete;
-	EventCallbackVector &_eventCbs;
-	ErrorCallbackVector &_errorCbs;
-	SyncStatusCallbackVector &_syncStatusCbs;
-	fs::FS *&_fs;
-	FrMutex &_mu;
-	DbStatus &_lastError;
-	DBSyncStatus &_lastSyncStatus;
-	DiagCache &_diagCache;
-	bool &_diagCachePrimed;
-	std::atomic<bool> &_initialized;
-	TaskHandle_t &_syncTask;
-	std::atomic<bool> &_syncStopRequested;
-	std::atomic<bool> &_syncTaskExited;
-	std::atomic<bool> &_syncKickRequested;
-	std::atomic<uint32_t> &_syncRequestSeq;
-	std::atomic<uint32_t> &_syncCompletedSeq;
-	StringBoolMap &_pendingDelayedCollections;
-	bool &_delayedPreloadPhaseCompleted;
-	bool &_dropAllRequested;
-	std::unique_ptr<FileStore> &_fileStore;
 };
 
 template <typename Pred>

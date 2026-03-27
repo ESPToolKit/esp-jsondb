@@ -1,6 +1,12 @@
 #include "dbTest.h"
+#include "../src/esp_jsondb/storage/doc_codec.h"
+#include "../src/esp_jsondb/utils/objectId.h"
 
 namespace {
+constexpr uint8_t kLegacyMagic[4] = {'J', 'D', 'B', '2'};
+constexpr uint16_t kLegacyVersion = 1;
+constexpr uint32_t kLegacyHeaderSize = 24 + 8 + 8 + 4 + 4 + 2;
+
 bool isHex24(const std::string &id) {
 	if (id.size() != 24)
 		return false;
@@ -20,6 +26,47 @@ std::string collectionDirPath(const std::string &collection) {
 
 std::string documentPath(const std::string &collection, const std::string &id) {
 	return collectionDirPath(collection) + "/" + id + ".jdb";
+}
+
+void appendU16(JsonDbVector<uint8_t> &out, uint16_t value) {
+	out.push_back(static_cast<uint8_t>(value & 0xFFu));
+	out.push_back(static_cast<uint8_t>((value >> 8) & 0xFFu));
+}
+
+void appendU32(JsonDbVector<uint8_t> &out, uint32_t value) {
+	out.push_back(static_cast<uint8_t>(value & 0xFFu));
+	out.push_back(static_cast<uint8_t>((value >> 8) & 0xFFu));
+	out.push_back(static_cast<uint8_t>((value >> 16) & 0xFFu));
+	out.push_back(static_cast<uint8_t>((value >> 24) & 0xFFu));
+}
+
+void appendU64(JsonDbVector<uint8_t> &out, uint64_t value) {
+	for (uint8_t shift = 0; shift < 8; ++shift) {
+		out.push_back(static_cast<uint8_t>((value >> (shift * 8U)) & 0xFFu));
+	}
+}
+
+JsonDbVector<uint8_t> encodeLegacyRecord(
+    const RecordHeader &header, const JsonDbVector<uint8_t> &payload
+) {
+	JsonDbVector<uint8_t> encoded{JsonDbAllocator<uint8_t>(false)};
+	const uint32_t payloadCrc = DocCodec::crc32(payload.data(), payload.size());
+	encoded.insert(encoded.end(), kLegacyMagic, kLegacyMagic + sizeof(kLegacyMagic));
+	appendU16(encoded, kLegacyVersion);
+	appendU16(encoded, header.flags);
+	appendU32(encoded, kLegacyHeaderSize);
+	appendU32(encoded, static_cast<uint32_t>(payload.size()));
+	for (size_t idx = 0; idx < DocId::kHexLength; ++idx) {
+		encoded.push_back(static_cast<uint8_t>(header.id.c_str()[idx]));
+	}
+	appendU64(encoded, header.createdAtMs);
+	appendU64(encoded, header.updatedAtMs);
+	appendU32(encoded, header.revision);
+	appendU32(encoded, payloadCrc);
+	appendU16(encoded, header.flags);
+	encoded.insert(encoded.end(), payload.begin(), payload.end());
+	appendU32(encoded, payloadCrc);
+	return encoded;
 }
 } // namespace
 
@@ -111,7 +158,7 @@ void DbTester::idLifecycleRoundTripTest() {
 		return;
 	}
 
-	auto updateStatus = db.updateById(collection, id, [](DocView &doc) { doc["value"] = 2; });
+	auto updateStatus = db.updateById(collection, id, [](DocView &doc) { doc["value"].set(2); });
 	if (!updateStatus.ok()) {
 		ESP_LOGE(DB_TESTER_TAG, "idLifecycleRoundTripTest updateById failed: %s", updateStatus.message);
 		return;
@@ -247,6 +294,105 @@ void DbTester::snapshotRestoreIdLifecycleTest() {
 	}
 
 	ESP_LOGI(DB_TESTER_TAG, "Snapshot restore ID lifecycle test passed");
+}
+
+void DbTester::docCodecCompatibilityTest() {
+	RecordHeader header;
+	header.id = ObjectId().toDocId();
+	header.createdAtMs = 123456789ULL;
+	header.updatedAtMs = 123456999ULL;
+	header.revision = 7;
+	header.flags = 0x002A;
+
+	JsonDocument payloadDoc;
+	payloadDoc["kind"] = "codec";
+	payloadDoc["value"] = 42;
+	JsonDbVector<uint8_t> payload{JsonDbAllocator<uint8_t>(false)};
+	const size_t payloadSize = measureMsgPack(payloadDoc);
+	payload.resize(payloadSize);
+	if (serializeMsgPack(payloadDoc, payload.data(), payload.size()) != payloadSize) {
+		ESP_LOGE(DB_TESTER_TAG, "docCodecCompatibilityTest payload serialization failed");
+		return;
+	}
+
+	JsonDbVector<uint8_t> encoded{JsonDbAllocator<uint8_t>(false)};
+	auto encodeStatus = DocCodec::encodeRecord(header, payload, encoded);
+	if (!encodeStatus.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "docCodecCompatibilityTest encode failed: %s", encodeStatus.message);
+		return;
+	}
+
+	RecordHeader decoded{};
+	JsonDbVector<uint8_t> decodedPayload{JsonDbAllocator<uint8_t>(false)};
+	auto decodeStatus =
+	    DocCodec::decodeRecord(encoded.data(), encoded.size(), decoded, decodedPayload, false);
+	if (!decodeStatus.ok() || decoded.flags != header.flags || decoded.revision != header.revision ||
+	    decodedPayload != payload) {
+		ESP_LOGE(DB_TESTER_TAG, "docCodecCompatibilityTest v2 decode verification failed");
+		return;
+	}
+
+	auto legacy = encodeLegacyRecord(header, payload);
+	RecordHeader legacyDecoded{};
+	JsonDbVector<uint8_t> legacyPayload{JsonDbAllocator<uint8_t>(false)};
+	auto legacyStatus =
+	    DocCodec::decodeRecord(legacy.data(), legacy.size(), legacyDecoded, legacyPayload, false);
+	if (!legacyStatus.ok() || legacyDecoded.flags != header.flags || legacyPayload != payload) {
+		ESP_LOGE(DB_TESTER_TAG, "docCodecCompatibilityTest legacy decode failed");
+		return;
+	}
+
+	legacy[4] = 0x63;
+	legacy[5] = 0x00;
+	RecordHeader badHeader{};
+	JsonDbVector<uint8_t> badPayload{JsonDbAllocator<uint8_t>(false)};
+	auto badStatus =
+	    DocCodec::decodeRecord(legacy.data(), legacy.size(), badHeader, badPayload, false);
+	if (badStatus.code != DbStatusCode::SchemaMismatch) {
+		ESP_LOGE(DB_TESTER_TAG, "docCodecCompatibilityTest expected SchemaMismatch for bad version");
+		return;
+	}
+
+	ESP_LOGI(DB_TESTER_TAG, "DocCodec compatibility test passed");
+}
+
+void DbTester::optimisticConflictTest() {
+	auto clearStatus = db.dropAll();
+	if (!clearStatus.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "optimisticConflictTest dropAll failed: %s", clearStatus.message);
+		return;
+	}
+
+	JsonDocument seed;
+	seed["count"] = 0;
+	auto createRes = db.create("conflict_docs", seed.as<JsonObjectConst>());
+	if (!createRes.status.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "optimisticConflictTest create failed: %s", createRes.status.message);
+		return;
+	}
+
+	const std::string id = createRes.value;
+	auto updateStatus = db.updateById("conflict_docs", id, [&](DocView &doc) {
+		auto nested =
+		    db.updateById("conflict_docs", id, [](DocView &inner) { inner["count"].set(2); });
+		if (!nested.ok()) {
+			ESP_LOGE(DB_TESTER_TAG, "optimisticConflictTest nested update failed: %s", nested.message);
+			return;
+		}
+		doc["count"].set(1);
+	});
+	if (updateStatus.code != DbStatusCode::Conflict) {
+		ESP_LOGE(DB_TESTER_TAG, "optimisticConflictTest expected Conflict, got %s", updateStatus.message);
+		return;
+	}
+
+	auto findRes = db.findById("conflict_docs", id);
+	if (!findRes.status.ok() || findRes.value["count"].as<int>() != 2) {
+		ESP_LOGE(DB_TESTER_TAG, "optimisticConflictTest final document state mismatch");
+		return;
+	}
+
+	ESP_LOGI(DB_TESTER_TAG, "Optimistic conflict test passed");
 }
 
 void DbTester::documentFileDeletionOnSyncTest() {

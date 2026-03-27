@@ -9,7 +9,6 @@
 #include "../utils/dbTypes.h"
 #include "../utils/jsondb_allocator.h"
 
-class ESPJsonDB;
 struct DbRuntime;
 
 struct FileStoreImpl {
@@ -31,7 +30,7 @@ struct FileStoreImpl {
 	using UploadIdDeque = JsonDbDeque<uint32_t>;
 	using UploadJobMap = JsonDbMap<uint32_t, std::shared_ptr<FileUploadJob>>;
 
-	FileStoreImpl(ESPJsonDB &db, DbRuntime &rt);
+	explicit FileStoreImpl(DbRuntime &rt);
 
 	DbStatus normalizePath(const std::string &rawRelativePath, std::string &normalized) const;
 
@@ -81,7 +80,6 @@ struct FileStoreImpl {
 	void startTaskUnlocked();
 	DbStatus runUploadJob(const std::shared_ptr<FileUploadJob> &job, size_t &bytesWritten);
 
-	ESPJsonDB *_db = nullptr;
 	DbRuntime *_rt = nullptr;
 	TaskHandle_t taskHandle = nullptr;
 	std::atomic<bool> stopRequested{false};

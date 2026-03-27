@@ -21,13 +21,13 @@
 #include "../utils/schema.h"
 #include "../storage/record_store.h"
 
-class ESPJsonDB;
+struct DbRuntime;
 struct CollectionStore;
 
 class Collection {
   public:
 	Collection(
-	    ESPJsonDB &db,
+	    DbRuntime &rt,
 	    const std::string &name,
 	    const Schema &schema,
 	    std::string baseDir,
@@ -36,12 +36,8 @@ class Collection {
 	    fs::FS &fs
 	);
 	~Collection();
-	const std::string &name() const {
-		return _name;
-	}
-	const CollectionConfig &config() const {
-		return _config;
-	}
+	const std::string &name() const;
+	const CollectionConfig &config() const;
 	void setConfig(const CollectionConfig &config);
 	void setSchema(const Schema &schema);
 
@@ -109,12 +105,8 @@ class Collection {
 	DbResult<size_t> updateMany(const JsonDocument &patch, const JsonDocument &filter);
 
 	// Dirty tracking
-	bool isDirty() const {
-		return _dirty;
-	}
-	void clearDirty() {
-		_dirty = false;
-	}
+	bool isDirty() const;
+	void clearDirty();
 
 	// Persistence hooks used by ESPJsonDB
 	DbStatus loadFromFs(const std::string &baseDir);
@@ -123,47 +115,13 @@ class Collection {
 	DbStatus flushDirtyToFs(const std::string &baseDir, bool &didWork);
 
 	// Optional: stats
-	size_t size() const {
-		return _docs.size();
-	}
+	size_t size() const;
 
 	// Mark all records as removed (used when dropping a collection)
-	void markAllRemoved() {
-		FrLock lk(_mu);
-		for (auto &kv : _docs) {
-			kv.second->meta.removed = true;
-		}
-	}
+	void markAllRemoved();
 
   private:
-	using DocumentRecordPtr = std::shared_ptr<DocumentRecord>;
-	using DocumentMapValue = std::pair<const DocId, DocumentRecordPtr>;
-	using DocumentMapAllocator = JsonDbAllocator<DocumentMapValue>;
-	using DocumentMap =
-	    std::map<DocId, DocumentRecordPtr, DocIdLess, DocumentMapAllocator>;
-
-	using UniqueValueMap = std::map<std::string, DocId, std::less<std::string>,
-	                                JsonDbAllocator<std::pair<const std::string, DocId>>>;
-	using UniqueIndexMap = std::map<
-	    std::string,
-	    UniqueValueMap,
-	    std::less<std::string>,
-	    JsonDbAllocator<std::pair<const std::string, UniqueValueMap>>>;
-
 	std::unique_ptr<CollectionStore> _store;
-	ESPJsonDB *&_db;
-	std::string &_name;
-	Schema &_schema;
-	CollectionConfig &_config;
-	DocumentMap &_docs;
-	bool &_dirty;
-	JsonDbVector<DocId> &_deletedIds;
-	FrMutex &_mu;
-	std::string &_baseDir;
-	bool &_usePSRAMBuffers;
-	fs::FS *&_fs;
-	RecordStore &_recordStore;
-	UniqueIndexMap &_uniqueIndexes;
 
 	DbStatus writeDocToFile(const std::string &baseDir, const DocumentRecord &r);
 	DbResult<std::shared_ptr<DocumentRecord>>
@@ -219,7 +177,6 @@ class Collection {
 	DbStatus recordStatus(const DbStatus &st) const;
 	void emitEvent(DBEventType ev) const;
 	void noteDeletedInDiag(size_t count) const;
-	friend struct CollectionStore;
 };
 
 template <typename Pred> DbResult<size_t> Collection::removeMany(Pred &&p) {

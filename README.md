@@ -18,6 +18,7 @@ ESPJsonDB is an embedded document database for ESP32 boards. Version 2 stores do
 ## Features
 - MessagePack payload storage with lazy `DocView` decoding.
 - Durable per-document metadata and revision counters.
+- The current `.jdb` writer uses a prefix-authoritative record envelope and still reads the interim duplicated-`flags` v2 envelope for compatibility.
 - Background sync worker for record flush and collection cleanup.
 - Per-collection load policy configuration via `configureCollection()`.
 - Schema validation with typed defaults and required fields.
@@ -143,6 +144,7 @@ Snapshots are document-only and exclude `/_files`.
 - `SnapshotMode::InMemoryConsistent` triggers `syncNow()` before reading persisted state.
 - `CollectionLoadPolicy::Lazy` loads a collection on first access; `Delayed` defers load to background sync or explicit access.
 - `DocView::commit()` is the only write intent; metadata returned by `meta()` is durable record metadata.
+- New `.jdb` writes use the current v2 envelope; decode also accepts the earlier unreleased duplicated-`flags` envelope variant.
 - `/_files` remains reserved and is not a valid collection name.
 - v2 is a breaking release and does not read legacy v1 `.mp` files directly.
 

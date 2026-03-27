@@ -24,6 +24,9 @@ class DbTester {
 	void refPopulateTest();
 	void idLifecycleRoundTripTest();
 	void snapshotRestoreIdLifecycleTest();
+	void docCodecCompatibilityTest();
+	void optimisticConflictTest();
+	void collectionBudgetEnforcementTest();
 	void documentFileDeletionOnSyncTest();
 	void fileStorageTest();
 	void fileMetadataDiscoveryTest();

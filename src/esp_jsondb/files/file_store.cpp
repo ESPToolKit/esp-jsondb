@@ -2,7 +2,6 @@
 
 #include "file_store_impl.h"
 
-#include "../db.h"
 #include "../db_runtime.h"
 #include "../utils/fr_mutex.h"
 #include "../utils/fs_utils.h"
@@ -212,8 +211,8 @@ DbStatus writeFromPullCb(
 
 } // namespace
 
-FileStoreImpl::FileStoreImpl(ESPJsonDB &db, DbRuntime &rt)
-    : _db(&db), _rt(&rt), uploadQueue(JsonDbAllocator<uint32_t>(rt.cfg.usePSRAMBuffers)),
+FileStoreImpl::FileStoreImpl(DbRuntime &rt)
+    : _rt(&rt), uploadQueue(JsonDbAllocator<uint32_t>(rt.cfg.usePSRAMBuffers)),
       uploadJobs(std::less<uint32_t>{}, UploadJobMap::allocator_type(rt.cfg.usePSRAMBuffers)),
       terminalUploadOrder(JsonDbAllocator<uint32_t>(rt.cfg.usePSRAMBuffers)) {
 }
@@ -278,16 +277,16 @@ DbStatus FileStoreImpl::writeFileStream(
     size_t bytesToWrite,
     const ESPJsonDBFileOptions &opts
 ) {
-	auto ready = _db->ensureReady();
+	auto ready = _rt->ensureReady();
 	if (!ready.ok())
-		return _db->recordStatus(ready);
+		return _rt->recordStatus(ready);
 
 	std::string normalized;
 	auto nst = normalizePath(relativePath, normalized);
 	if (!nst.ok())
-		return _db->recordStatus(nst);
+		return _rt->recordStatus(nst);
 
-	const std::string finalPath = joinPath(_db->fileRootDir(), normalized);
+	const std::string finalPath = joinPath(_rt->fileRootDir(), normalized);
 	size_t remaining = bytesToWrite;
 	DbFileUploadPullCb pullCb =
 	    [&in, &remaining](size_t requested, uint8_t *buffer, size_t &produced, bool &eof)
@@ -314,12 +313,12 @@ DbStatus FileStoreImpl::writeFileStream(
 	size_t totalWritten = 0;
 	auto st = writeFromPullCb(*_rt->fs, finalPath, _rt->cfg.usePSRAMBuffers, opts, pullCb, totalWritten);
 	if (!st.ok())
-		return _db->recordStatus(st);
+		return _rt->recordStatus(st);
 	if (totalWritten != bytesToWrite) {
-		return _db->recordStatus({DbStatusCode::IoError, "written size mismatch"});
+		return _rt->recordStatus({DbStatusCode::IoError, "written size mismatch"});
 	}
 
-	return _db->recordStatus({DbStatusCode::Ok, ""});
+	return _rt->recordStatus({DbStatusCode::Ok, ""});
 }
 
 DbStatus FileStoreImpl::writeFileStream(
@@ -327,19 +326,19 @@ DbStatus FileStoreImpl::writeFileStream(
     const DbFileUploadPullCb &pullCb,
     const ESPJsonDBFileOptions &opts
 ) {
-	auto ready = _db->ensureReady();
+	auto ready = _rt->ensureReady();
 	if (!ready.ok())
-		return _db->recordStatus(ready);
+		return _rt->recordStatus(ready);
 
 	std::string normalized;
 	auto nst = normalizePath(relativePath, normalized);
 	if (!nst.ok())
-		return _db->recordStatus(nst);
+		return _rt->recordStatus(nst);
 
-	const std::string finalPath = joinPath(_db->fileRootDir(), normalized);
+	const std::string finalPath = joinPath(_rt->fileRootDir(), normalized);
 	size_t totalWritten = 0;
 	auto st = writeFromPullCb(*_rt->fs, finalPath, _rt->cfg.usePSRAMBuffers, opts, pullCb, totalWritten);
-	return _db->recordStatus(st);
+	return _rt->recordStatus(st);
 }
 
 DbStatus FileStoreImpl::writeFileFromPath(
@@ -348,11 +347,11 @@ DbStatus FileStoreImpl::writeFileFromPath(
     const ESPJsonDBFileOptions &opts
 ) {
 	if (sourceFsPath.empty()) {
-		return _db->recordStatus({DbStatusCode::InvalidArgument, "source file path is empty"});
+		return _rt->recordStatus({DbStatusCode::InvalidArgument, "source file path is empty"});
 	}
-	auto ready = _db->ensureReady();
+	auto ready = _rt->ensureReady();
 	if (!ready.ok())
-		return _db->recordStatus(ready);
+		return _rt->recordStatus(ready);
 
 	File source;
 	{
@@ -360,7 +359,7 @@ DbStatus FileStoreImpl::writeFileFromPath(
 		source = _rt->fs->open(sourceFsPath.c_str(), FILE_READ);
 	}
 	if (!source) {
-		return _db->recordStatus({DbStatusCode::NotFound, "source file not found"});
+		return _rt->recordStatus({DbStatusCode::NotFound, "source file not found"});
 	}
 
 	const size_t bytesToWrite = source.size();
@@ -373,28 +372,28 @@ DbStatus FileStoreImpl::writeFile(
     const std::string &relativePath, const uint8_t *data, size_t size, bool overwrite
 ) {
 	if (size > 0 && data == nullptr) {
-		return _db->recordStatus({DbStatusCode::InvalidArgument, "file data is null"});
+		return _rt->recordStatus({DbStatusCode::InvalidArgument, "file data is null"});
 	}
 
-	auto ready = _db->ensureReady();
+	auto ready = _rt->ensureReady();
 	if (!ready.ok())
-		return _db->recordStatus(ready);
+		return _rt->recordStatus(ready);
 
 	std::string normalized;
 	auto nst = normalizePath(relativePath, normalized);
 	if (!nst.ok())
-		return _db->recordStatus(nst);
+		return _rt->recordStatus(nst);
 
-	const std::string finalPath = joinPath(_db->fileRootDir(), normalized);
+	const std::string finalPath = joinPath(_rt->fileRootDir(), normalized);
 	const std::string parentDir = parentDirOf(finalPath);
 	const std::string tmpPath = finalPath + ".tmp";
 
 	FrLock fs(g_fsMutex);
 	if (!fsEnsureDir(*_rt->fs, parentDir)) {
-		return _db->recordStatus({DbStatusCode::IoError, "mkdir file parent failed"});
+		return _rt->recordStatus({DbStatusCode::IoError, "mkdir file parent failed"});
 	}
 	if (!overwrite && _rt->fs->exists(finalPath.c_str())) {
-		return _db->recordStatus({DbStatusCode::AlreadyExists, "file already exists"});
+		return _rt->recordStatus({DbStatusCode::AlreadyExists, "file already exists"});
 	}
 	if (_rt->fs->exists(tmpPath.c_str())) {
 		_rt->fs->remove(tmpPath.c_str());
@@ -402,7 +401,7 @@ DbStatus FileStoreImpl::writeFile(
 
 	File f = _rt->fs->open(tmpPath.c_str(), FILE_WRITE);
 	if (!f) {
-		return _db->recordStatus({DbStatusCode::IoError, "open file for write failed"});
+		return _rt->recordStatus({DbStatusCode::IoError, "open file for write failed"});
 	}
 	WriteBufferingStream buffered(f, 256);
 
@@ -414,19 +413,19 @@ DbStatus FileStoreImpl::writeFile(
 	f.close();
 	if (written != size) {
 		_rt->fs->remove(tmpPath.c_str());
-		return _db->recordStatus({DbStatusCode::IoError, "file write failed"});
+		return _rt->recordStatus({DbStatusCode::IoError, "file write failed"});
 	}
 
 	if (overwrite && _rt->fs->exists(finalPath.c_str()) && !_rt->fs->remove(finalPath.c_str())) {
 		_rt->fs->remove(tmpPath.c_str());
-		return _db->recordStatus({DbStatusCode::IoError, "remove old file failed"});
+		return _rt->recordStatus({DbStatusCode::IoError, "remove old file failed"});
 	}
 	if (!_rt->fs->rename(tmpPath.c_str(), finalPath.c_str())) {
 		_rt->fs->remove(tmpPath.c_str());
-		return _db->recordStatus({DbStatusCode::IoError, "rename file failed"});
+		return _rt->recordStatus({DbStatusCode::IoError, "rename file failed"});
 	}
 
-	return _db->recordStatus({DbStatusCode::Ok, ""});
+	return _rt->recordStatus({DbStatusCode::Ok, ""});
 }
 
 DbStatus
@@ -442,16 +441,16 @@ FileStoreImpl::writeTextFile(const std::string &relativePath, const std::string 
 DbResult<size_t>
 FileStoreImpl::readFileStream(const std::string &relativePath, Stream &out, size_t chunkSize) {
 	DbResult<size_t> res{};
-	auto ready = _db->ensureReady();
+	auto ready = _rt->ensureReady();
 	if (!ready.ok()) {
-		res.status = _db->recordStatus(ready);
+		res.status = _rt->recordStatus(ready);
 		return res;
 	}
 
 	std::string normalized;
 	auto nst = normalizePath(relativePath, normalized);
 	if (!nst.ok()) {
-		res.status = _db->recordStatus(nst);
+		res.status = _rt->recordStatus(nst);
 		return res;
 	}
 
@@ -459,12 +458,12 @@ FileStoreImpl::readFileStream(const std::string &relativePath, Stream &out, size
 		chunkSize = 32;
 	JsonDbVector<uint8_t> buffer{JsonDbAllocator<uint8_t>(_rt->cfg.usePSRAMBuffers)};
 	buffer.resize(chunkSize);
-	const std::string path = joinPath(_db->fileRootDir(), normalized);
+	const std::string path = joinPath(_rt->fileRootDir(), normalized);
 
 	FrLock fs(g_fsMutex);
 	File f = _rt->fs->open(path.c_str(), FILE_READ);
 	if (!f) {
-		res.status = _db->recordStatus({DbStatusCode::NotFound, "file not found"});
+		res.status = _rt->recordStatus({DbStatusCode::NotFound, "file not found"});
 		return res;
 	}
 
@@ -476,39 +475,39 @@ FileStoreImpl::readFileStream(const std::string &relativePath, Stream &out, size
 		size_t written = out.write(buffer.data(), readBytes);
 		if (written != readBytes) {
 			f.close();
-			res.status = _db->recordStatus({DbStatusCode::IoError, "output stream write failed"});
+			res.status = _rt->recordStatus({DbStatusCode::IoError, "output stream write failed"});
 			return res;
 		}
 		total += written;
 	}
 	f.close();
 
-	res.status = _db->recordStatus({DbStatusCode::Ok, ""});
+	res.status = _rt->recordStatus({DbStatusCode::Ok, ""});
 	res.value = total;
 	return res;
 }
 
 DbResult<std::vector<uint8_t>> FileStoreImpl::readFile(const std::string &relativePath) {
 	DbResult<std::vector<uint8_t>> res{};
-	auto ready = _db->ensureReady();
+	auto ready = _rt->ensureReady();
 	if (!ready.ok()) {
-		res.status = _db->recordStatus(ready);
+		res.status = _rt->recordStatus(ready);
 		return res;
 	}
 
 	std::string normalized;
 	auto nst = normalizePath(relativePath, normalized);
 	if (!nst.ok()) {
-		res.status = _db->recordStatus(nst);
+		res.status = _rt->recordStatus(nst);
 		return res;
 	}
 
-	const std::string path = joinPath(_db->fileRootDir(), normalized);
+	const std::string path = joinPath(_rt->fileRootDir(), normalized);
 
 	FrLock fs(g_fsMutex);
 	File f = _rt->fs->open(path.c_str(), FILE_READ);
 	if (!f) {
-		res.status = _db->recordStatus({DbStatusCode::NotFound, "file not found"});
+		res.status = _rt->recordStatus({DbStatusCode::NotFound, "file not found"});
 		return res;
 	}
 
@@ -521,11 +520,11 @@ DbResult<std::vector<uint8_t>> FileStoreImpl::readFile(const std::string &relati
 	f.close();
 	if (readBytes != sz) {
 		res.value.clear();
-		res.status = _db->recordStatus({DbStatusCode::IoError, "file read failed"});
+		res.status = _rt->recordStatus({DbStatusCode::IoError, "file read failed"});
 		return res;
 	}
 
-	res.status = _db->recordStatus({DbStatusCode::Ok, ""});
+	res.status = _rt->recordStatus({DbStatusCode::Ok, ""});
 	return res;
 }
 
@@ -537,29 +536,29 @@ DbResult<std::string> FileStoreImpl::readTextFile(const std::string &relativePat
 		return res;
 	}
 	res.value.assign(fr.value.begin(), fr.value.end());
-	res.status = _db->recordStatus({DbStatusCode::Ok, ""});
+	res.status = _rt->recordStatus({DbStatusCode::Ok, ""});
 	return res;
 }
 
 DbResult<JsonDocument> FileStoreImpl::getFileInfo(const std::string &relativePath) {
 	DbResult<JsonDocument> res;
-	auto ready = _db->ensureReady();
+	auto ready = _rt->ensureReady();
 	if (!ready.ok()) {
-		res.status = _db->recordStatus(ready);
+		res.status = _rt->recordStatus(ready);
 		return res;
 	}
 
 	std::string normalized;
 	auto nst = normalizePath(relativePath, normalized);
 	if (!nst.ok()) {
-		res.status = _db->recordStatus(nst);
+		res.status = _rt->recordStatus(nst);
 		return res;
 	}
 
 	FileEntryInfo info;
-	const auto st = statFileEntry(*_rt->fs, joinPath(_db->fileRootDir(), normalized), normalized, info);
+	const auto st = statFileEntry(*_rt->fs, joinPath(_rt->fileRootDir(), normalized), normalized, info);
 	if (!st.ok()) {
-		res.status = _db->recordStatus(st);
+		res.status = _rt->recordStatus(st);
 		return res;
 	}
 
@@ -568,15 +567,15 @@ DbResult<JsonDocument> FileStoreImpl::getFileInfo(const std::string &relativePat
 	res.value["exists"] = true;
 	res.value["isDirectory"] = info.isDirectory;
 	res.value["size"] = info.size;
-	res.status = _db->recordStatus({DbStatusCode::Ok, ""});
+	res.status = _rt->recordStatus({DbStatusCode::Ok, ""});
 	return res;
 }
 
 DbResult<JsonDocument> FileStoreImpl::listFiles(const std::string &relativePrefix, bool recursive) {
 	DbResult<JsonDocument> res;
-	auto ready = _db->ensureReady();
+	auto ready = _rt->ensureReady();
 	if (!ready.ok()) {
-		res.status = _db->recordStatus(ready);
+		res.status = _rt->recordStatus(ready);
 		return res;
 	}
 
@@ -584,19 +583,19 @@ DbResult<JsonDocument> FileStoreImpl::listFiles(const std::string &relativePrefi
 	if (!relativePrefix.empty()) {
 		auto nst = normalizePath(relativePrefix, normalizedPrefix);
 		if (!nst.ok()) {
-			res.status = _db->recordStatus(nst);
+			res.status = _rt->recordStatus(nst);
 			return res;
 		}
 	}
 
-	const std::string rootPath = _db->fileRootDir();
+	const std::string rootPath = _rt->fileRootDir();
 	const std::string targetPath =
 	    normalizedPrefix.empty() ? rootPath : joinPath(rootPath, normalizedPrefix);
 
 	FileEntryInfo targetInfo;
 	auto st = statFileEntry(*_rt->fs, targetPath, normalizedPrefix, targetInfo);
 	if (!st.ok()) {
-		res.status = _db->recordStatus(st);
+		res.status = _rt->recordStatus(st);
 		return res;
 	}
 
@@ -604,7 +603,7 @@ DbResult<JsonDocument> FileStoreImpl::listFiles(const std::string &relativePrefi
 	if (targetInfo.isDirectory) {
 		st = collectDirectoryEntries(*_rt->fs, targetPath, normalizedPrefix, recursive, entries);
 		if (!st.ok()) {
-			res.status = _db->recordStatus(st);
+			res.status = _rt->recordStatus(st);
 			return res;
 		}
 	} else {
@@ -622,78 +621,78 @@ DbResult<JsonDocument> FileStoreImpl::listFiles(const std::string &relativePrefi
 		appendFileInfoJson(entriesJson, entry);
 	}
 
-	res.status = _db->recordStatus({DbStatusCode::Ok, ""});
+	res.status = _rt->recordStatus({DbStatusCode::Ok, ""});
 	return res;
 }
 
 DbStatus FileStoreImpl::removeFile(const std::string &relativePath) {
-	auto ready = _db->ensureReady();
+	auto ready = _rt->ensureReady();
 	if (!ready.ok())
-		return _db->recordStatus(ready);
+		return _rt->recordStatus(ready);
 
 	std::string normalized;
 	auto nst = normalizePath(relativePath, normalized);
 	if (!nst.ok())
-		return _db->recordStatus(nst);
+		return _rt->recordStatus(nst);
 
-	const std::string path = joinPath(_db->fileRootDir(), normalized);
+	const std::string path = joinPath(_rt->fileRootDir(), normalized);
 	FrLock fs(g_fsMutex);
 	if (!_rt->fs->exists(path.c_str())) {
-		return _db->recordStatus({DbStatusCode::NotFound, "file not found"});
+		return _rt->recordStatus({DbStatusCode::NotFound, "file not found"});
 	}
 	if (!_rt->fs->remove(path.c_str())) {
-		return _db->recordStatus({DbStatusCode::IoError, "file remove failed"});
+		return _rt->recordStatus({DbStatusCode::IoError, "file remove failed"});
 	}
-	return _db->recordStatus({DbStatusCode::Ok, ""});
+	return _rt->recordStatus({DbStatusCode::Ok, ""});
 }
 
 DbResult<bool> FileStoreImpl::fileExists(const std::string &relativePath) {
 	DbResult<bool> res{};
-	auto ready = _db->ensureReady();
+	auto ready = _rt->ensureReady();
 	if (!ready.ok()) {
-		res.status = _db->recordStatus(ready);
+		res.status = _rt->recordStatus(ready);
 		return res;
 	}
 
 	std::string normalized;
 	auto nst = normalizePath(relativePath, normalized);
 	if (!nst.ok()) {
-		res.status = _db->recordStatus(nst);
+		res.status = _rt->recordStatus(nst);
 		return res;
 	}
 
-	const std::string path = joinPath(_db->fileRootDir(), normalized);
+	const std::string path = joinPath(_rt->fileRootDir(), normalized);
 	FrLock fs(g_fsMutex);
 	res.value = _rt->fs->exists(path.c_str());
-	res.status = _db->recordStatus({DbStatusCode::Ok, ""});
+	res.status = _rt->recordStatus({DbStatusCode::Ok, ""});
 	return res;
 }
 
 DbResult<size_t> FileStoreImpl::fileSize(const std::string &relativePath) {
 	DbResult<size_t> res{};
-	auto ready = _db->ensureReady();
+	auto ready = _rt->ensureReady();
 	if (!ready.ok()) {
-		res.status = _db->recordStatus(ready);
+		res.status = _rt->recordStatus(ready);
 		return res;
 	}
 
 	std::string normalized;
 	auto nst = normalizePath(relativePath, normalized);
 	if (!nst.ok()) {
-		res.status = _db->recordStatus(nst);
+		res.status = _rt->recordStatus(nst);
 		return res;
 	}
 
-	const std::string path = joinPath(_db->fileRootDir(), normalized);
+	const std::string path = joinPath(_rt->fileRootDir(), normalized);
 	FrLock fs(g_fsMutex);
 	File f = _rt->fs->open(path.c_str(), FILE_READ);
 	if (!f) {
-		res.status = _db->recordStatus({DbStatusCode::NotFound, "file not found"});
+		res.status = _rt->recordStatus({DbStatusCode::NotFound, "file not found"});
 		return res;
 	}
 	res.value = f.size();
 	f.close();
-	res.status = _db->recordStatus({DbStatusCode::Ok, ""});
+	res.status = _rt->recordStatus({DbStatusCode::Ok, ""});
 	return res;
 }
 
@@ -729,20 +728,20 @@ DbResult<uint32_t> FileStoreImpl::writeFileStreamAsync(
     const DbFileUploadDoneCb &doneCb
 ) {
 	DbResult<uint32_t> res{};
-	auto ready = _db->ensureReady();
+	auto ready = _rt->ensureReady();
 	if (!ready.ok()) {
-		res.status = _db->recordStatus(ready);
+		res.status = _rt->recordStatus(ready);
 		return res;
 	}
 	if (!pullCb) {
-		res.status = _db->recordStatus({DbStatusCode::InvalidArgument, "upload callback is required"});
+		res.status = _rt->recordStatus({DbStatusCode::InvalidArgument, "upload callback is required"});
 		return res;
 	}
 
 	std::string normalized;
 	auto nst = normalizePath(relativePath, normalized);
 	if (!nst.ok()) {
-		res.status = _db->recordStatus(nst);
+		res.status = _rt->recordStatus(nst);
 		return res;
 	}
 
@@ -767,12 +766,12 @@ DbResult<uint32_t> FileStoreImpl::writeFileStreamAsync(
 			    uploadQueue.end()
 			);
 			uploadJobs.erase(job->id);
-			res.status = _db->recordStatus({DbStatusCode::Busy, "upload worker start failed"});
+			res.status = _rt->recordStatus({DbStatusCode::Busy, "upload worker start failed"});
 			return res;
 		}
 	}
 
-	res.status = _db->recordStatus({DbStatusCode::Ok, ""});
+	res.status = _rt->recordStatus({DbStatusCode::Ok, ""});
 	res.value = job->id;
 	return res;
 }
@@ -787,14 +786,14 @@ DbStatus FileStoreImpl::cancelUpload(uint32_t uploadId) {
 		FrLock lk(_rt->mu);
 		auto it = uploadJobs.find(uploadId);
 		if (it == uploadJobs.end()) {
-			return _db->recordStatus({DbStatusCode::NotFound, "upload not found"});
+			return _rt->recordStatus({DbStatusCode::NotFound, "upload not found"});
 		}
 		auto &job = it->second;
 		if (!job) {
-			return _db->recordStatus({DbStatusCode::NotFound, "upload not found"});
+			return _rt->recordStatus({DbStatusCode::NotFound, "upload not found"});
 		}
 		if (isUploadTerminal(job->state)) {
-			return _db->recordStatus({DbStatusCode::Ok, ""});
+			return _rt->recordStatus({DbStatusCode::Ok, ""});
 		}
 
 		job->cancelRequested = true;
@@ -815,14 +814,14 @@ DbStatus FileStoreImpl::cancelUpload(uint32_t uploadId) {
 	if (triggerDone && doneCb) {
 		doneCb(uploadId, doneStatus, bytesWritten);
 	}
-	return _db->recordStatus({DbStatusCode::Ok, ""});
+	return _rt->recordStatus({DbStatusCode::Ok, ""});
 }
 
 DbResult<DbFileUploadState> FileStoreImpl::getUploadState(uint32_t uploadId) {
 	DbResult<DbFileUploadState> res{};
-	auto ready = _db->ensureReady();
+	auto ready = _rt->ensureReady();
 	if (!ready.ok()) {
-		res.status = _db->recordStatus(ready);
+		res.status = _rt->recordStatus(ready);
 		return res;
 	}
 
@@ -830,13 +829,13 @@ DbResult<DbFileUploadState> FileStoreImpl::getUploadState(uint32_t uploadId) {
 		FrLock lk(_rt->mu);
 		auto it = uploadJobs.find(uploadId);
 		if (it == uploadJobs.end() || !it->second) {
-			res.status = _db->recordStatus({DbStatusCode::NotFound, "upload not found"});
+			res.status = _rt->recordStatus({DbStatusCode::NotFound, "upload not found"});
 			return res;
 		}
 		res.value = it->second->state;
 	}
 
-	res.status = _db->recordStatus({DbStatusCode::Ok, ""});
+	res.status = _rt->recordStatus({DbStatusCode::Ok, ""});
 	return res;
 }
 
@@ -851,7 +850,7 @@ void FileStoreImpl::startTaskUnlocked() {
 	stopRequested.store(false, std::memory_order_release);
 	taskExited.store(false, std::memory_order_release);
 	TaskHandle_t handle = nullptr;
-	if (_db->createTask(taskThunk, "db.file.upload", handle)) {
+	if (_rt->createTask(taskThunk, "db.file.upload", this, handle)) {
 		taskHandle = handle;
 	} else {
 		taskExited.store(true, std::memory_order_release);
@@ -871,7 +870,7 @@ void FileStoreImpl::stopTask(bool cancelPending) {
 		uploadQueue.clear();
 	}
 	if (taskHandle) {
-		_db->stopTask(taskHandle, stopRequested, taskExited);
+		_rt->stopTask(taskHandle, stopRequested, taskExited);
 	}
 	uploadJobs.clear();
 	terminalUploadOrder.clear();
@@ -888,7 +887,7 @@ DbStatus FileStoreImpl::runUploadJob(const std::shared_ptr<FileUploadJob> &job, 
 	JsonDbVector<uint8_t> buffer{JsonDbAllocator<uint8_t>(_rt->cfg.usePSRAMBuffers)};
 	buffer.resize(chunkSize);
 
-	const std::string finalPath = joinPath(_db->fileRootDir(), job->normalizedPath);
+	const std::string finalPath = joinPath(_rt->fileRootDir(), job->normalizedPath);
 	const std::string parentDir = parentDirOf(finalPath);
 	const std::string tmpPath = finalPath + ".tmp";
 
@@ -1053,7 +1052,7 @@ void FileStoreImpl::taskLoop() {
 		}
 
 		if (!finalStatus.ok() && finalState != DbFileUploadState::Cancelled) {
-			_db->recordStatus(finalStatus);
+			_rt->recordStatus(finalStatus);
 		}
 		if (doneCb) {
 			doneCb(job->id, finalStatus, bytesWritten);

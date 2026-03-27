@@ -4,8 +4,10 @@
 
 namespace {
 constexpr uint8_t kMagic[4] = {'J', 'D', 'B', '2'};
-constexpr uint16_t kVersion = 1;
-constexpr uint32_t kHeaderSize = 24 + 8 + 8 + 4 + 4 + 2;
+constexpr uint16_t kVersionWithDuplicatedFlags = 1;
+constexpr uint16_t kVersionPrefixFlagsOnly = 2;
+constexpr uint32_t kHeaderSizeV1 = 24 + 8 + 8 + 4 + 4 + 2;
+constexpr uint32_t kHeaderSizeV2 = 24 + 8 + 8 + 4 + 4;
 constexpr uint32_t kPrefixSize = 4 + 2 + 2 + 4 + 4;
 
 void appendU16(JsonDbVector<uint8_t> &out, uint16_t value) {
@@ -79,11 +81,11 @@ DbStatus DocCodec::encodeRecord(
 
 	const uint32_t payloadCrc = crc32(payload.data(), payload.size());
 	out.clear();
-	out.reserve(kPrefixSize + kHeaderSize + payload.size() + sizeof(uint32_t));
+	out.reserve(kPrefixSize + kHeaderSizeV2 + payload.size() + sizeof(uint32_t));
 	out.insert(out.end(), kMagic, kMagic + sizeof(kMagic));
-	appendU16(out, kVersion);
+	appendU16(out, kVersionPrefixFlagsOnly);
 	appendU16(out, header.flags);
-	appendU32(out, kHeaderSize);
+	appendU32(out, kHeaderSizeV2);
 	appendU32(out, static_cast<uint32_t>(payload.size()));
 
 	for (size_t idx = 0; idx < DocId::kHexLength; ++idx) {
@@ -93,7 +95,6 @@ DbStatus DocCodec::encodeRecord(
 	appendU64(out, header.updatedAtMs);
 	appendU32(out, header.revision);
 	appendU32(out, payloadCrc);
-	appendU16(out, header.flags);
 
 	out.insert(out.end(), payload.begin(), payload.end());
 	appendU32(out, payloadCrc);
@@ -108,7 +109,7 @@ DbStatus DocCodec::decodeRecord(
     bool usePSRAMBuffers
 ) {
 	payload = JsonDbVector<uint8_t>(JsonDbAllocator<uint8_t>(usePSRAMBuffers));
-	if (!data || size < (kPrefixSize + kHeaderSize + sizeof(uint32_t))) {
+	if (!data || size < (kPrefixSize + kHeaderSizeV2 + sizeof(uint32_t))) {
 		return {DbStatusCode::CorruptionDetected, "record too small"};
 	}
 	if (std::memcmp(data, kMagic, sizeof(kMagic)) != 0) {
@@ -124,7 +125,9 @@ DbStatus DocCodec::decodeRecord(
 	    !readU32(data, size, offset, headerSize) || !readU32(data, size, offset, payloadSize)) {
 		return {DbStatusCode::CorruptionDetected, "record header truncated"};
 	}
-	if (version != kVersion || headerSize != kHeaderSize) {
+	const bool isV1 = version == kVersionWithDuplicatedFlags && headerSize == kHeaderSizeV1;
+	const bool isV2 = version == kVersionPrefixFlagsOnly && headerSize == kHeaderSizeV2;
+	if (!isV1 && !isV2) {
 		return {DbStatusCode::SchemaMismatch, "unsupported record version"};
 	}
 	if (size != (kPrefixSize + headerSize + payloadSize + sizeof(uint32_t))) {
@@ -144,9 +147,14 @@ DbStatus DocCodec::decodeRecord(
 	if (!readU64(data, size, offset, header.createdAtMs) ||
 	    !readU64(data, size, offset, header.updatedAtMs) ||
 	    !readU32(data, size, offset, header.revision) ||
-	    !readU32(data, size, offset, header.payloadCrc32) ||
-	    !readU16(data, size, offset, header.flags)) {
+	    !readU32(data, size, offset, header.payloadCrc32)) {
 		return {DbStatusCode::CorruptionDetected, "record header payload truncated"};
+	}
+	if (isV1) {
+		uint16_t legacyFlags = 0;
+		if (!readU16(data, size, offset, legacyFlags)) {
+			return {DbStatusCode::CorruptionDetected, "record header payload truncated"};
+		}
 	}
 
 	payload.resize(payloadSize);
