@@ -19,7 +19,7 @@ std::string collectionDirPath(const std::string &collection) {
 }
 
 std::string documentPath(const std::string &collection, const std::string &id) {
-	return collectionDirPath(collection) + "/" + id + ".mp";
+	return collectionDirPath(collection) + "/" + id + ".jdb";
 }
 } // namespace
 
@@ -180,7 +180,7 @@ void DbTester::snapshotRestoreIdLifecycleTest() {
 		return;
 	}
 
-	auto snapshot = db.getSnapshot();
+	auto snapshot = db.getSnapshot(SnapshotMode::OnDiskOnly);
 	JsonArrayConst arr = snapshot["collections"][collection.c_str()].as<JsonArrayConst>();
 	if (arr.isNull() || arr.size() != ids.size()) {
 		ESP_LOGE(DB_TESTER_TAG, "snapshotRestoreIdLifecycleTest snapshot collection missing");
@@ -190,6 +190,12 @@ void DbTester::snapshotRestoreIdLifecycleTest() {
 		const char *id = obj["_id"].as<const char *>();
 		if (!id || !isHex24(id)) {
 			ESP_LOGE(DB_TESTER_TAG, "snapshotRestoreIdLifecycleTest snapshot _id format invalid");
+			return;
+		}
+		JsonObjectConst meta = obj["_meta"].as<JsonObjectConst>();
+		if (meta.isNull() || meta["createdAtMs"].isNull() || meta["updatedAtMs"].isNull() ||
+		    meta["revision"].isNull()) {
+			ESP_LOGE(DB_TESTER_TAG, "snapshotRestoreIdLifecycleTest snapshot metadata missing");
 			return;
 		}
 	}
@@ -231,6 +237,11 @@ void DbTester::snapshotRestoreIdLifecycleTest() {
 		}
 		if (findRes.value["index"].as<int>() != static_cast<int>(i)) {
 			ESP_LOGE(DB_TESTER_TAG, "snapshotRestoreIdLifecycleTest restored payload mismatch");
+			return;
+		}
+		if (findRes.value.meta().createdAtMs == 0 || findRes.value.meta().updatedAtMs == 0 ||
+		    findRes.value.meta().revision == 0) {
+			ESP_LOGE(DB_TESTER_TAG, "snapshotRestoreIdLifecycleTest restored metadata missing");
 			return;
 		}
 	}

@@ -120,7 +120,7 @@ Please keep these in mind when contributing:
 4. **Autosync task (FreeRTOS)**  
    - The DB may run a background task that flushes dirty documents every `intervalMs`. Keep callbacks **non-blocking**; tune stack/priority/core via `ESPJsonDBConfig`.
 5. **On-disk layout & atomic writes**  
-   - Documents are saved as `<id>.mp` under `/baseDir/<collection>/`. Writes should be **atomic**: write to `*.tmp` then `rename()`.
+   - Documents are saved as `<id>.jdb` under `/baseDir/<collection>/`. Writes should be **atomic**: write to `*.tmp` then `rename()`.
 6. **Validation hooks**  
    - Collections may have a `Schema` validator. Mutations should run pre-save validation and fail with a clear status when invalid.
 

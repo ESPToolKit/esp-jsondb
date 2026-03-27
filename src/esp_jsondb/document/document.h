@@ -59,11 +59,13 @@ class JsonDbDocAllocator : public ArduinoJson::Allocator {
  * The database does not manage or check time synchronization.
  */
 struct DocumentMeta {
-	uint32_t createdAt = 0; // UTC milliseconds
-	uint32_t updatedAt = 0; // UTC milliseconds
-	DocId id;               // 24-hex ObjectId
-	bool dirty = false;     // needs flush to FS
-	bool removed = false;   // logically deleted; DocView::commit should fail
+	DocId id;                   // 24-hex ObjectId
+	uint64_t createdAtMs = 0;   // UTC milliseconds
+	uint64_t updatedAtMs = 0;   // UTC milliseconds
+	uint32_t revision = 0;
+	uint16_t flags = 0;
+	bool dirty = false;         // needs flush to FS
+	bool removed = false;       // logically deleted; DocView::commit should fail
 };
 
 // Internal storage unit (owned by Collection)

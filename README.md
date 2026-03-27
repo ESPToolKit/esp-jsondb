@@ -1,26 +1,32 @@
 # ESPJsonDB
 
-A lightweight document database for ESP32 devices. ESPJsonDB borrows the ergonomics of MongoDB/Mongoose while embracing embedded constraints: collections live as JSON on LittleFS, memory use is capped through an optional cache, and every API leans on ArduinoJson types so you can stay inside a single document representation.
+ESPJsonDB is an embedded document database for ESP32 boards. Version 2 stores document payloads as MessagePack inside durable `.jdb` records, keeps document metadata on disk, and separates document storage from generic file storage.
 
 ## CI / Release / License
 [![CI](https://github.com/ESPToolKit/esp-jsondb/actions/workflows/ci.yml/badge.svg)](https://github.com/ESPToolKit/esp-jsondb/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/ESPToolKit/esp-jsondb?sort=semver)](https://github.com/ESPToolKit/esp-jsondb/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.md)
 
+## What Changed In v2
+- Documents are persisted as `.jdb` records with durable `_id`, `createdAtMs`, `updatedAtMs`, `revision`, and `flags`.
+- Collection loading is policy-driven with `Eager`, `Lazy`, and `Delayed` modes.
+- Snapshots are explicit: `SnapshotMode::OnDiskOnly` or `SnapshotMode::InMemoryConsistent`.
+- Schema fields support first-class `required`, `unique`, and typed defaults.
+- Generic file storage is accessed through `db.files()`.
+- The old `cacheEnabled`, `coldSync`, and `delayedCollectionSyncArray` config knobs are gone.
+
 ## Features
-- Simple, mongoose-like API for embedded projects (create/update/remove/find with predicates or JSON filters).
-- Optional in-memory cache with dirty-document tracking and change detection to avoid needless flash I/O.
-- Automatic LittleFS synchronisation on a background FreeRTOS task (`ESPJsonDBConfig` controls interval, stack, priority, and core affinity).
-- Configurable delayed boot preload for selected collections (`delayedCollectionSyncArray`) to reduce cold-start RAM sync work.
-- MessagePack compression + StreamUtils for efficient read/write pipelines.
-- Schema registry with required fields, defaults, type validation, and collection-level unique constraints.
-- Event + error callbacks so firmware can observe sync cycles or take action when validation fails.
-- Snapshot/restore helpers for backups plus diagnostics that report per-collection counts and config details.
-- Generic file storage helpers under `/<baseDir>/_files` with chunked stream read/write for any file type (text, binary, etc.).
+- MessagePack payload storage with lazy `DocView` decoding.
+- Durable per-document metadata and revision counters.
+- Background sync worker for record flush and collection cleanup.
+- Per-collection load policy configuration via `configureCollection()`.
+- Schema validation with typed defaults and required fields.
+- Unique field enforcement backed by in-memory indexes.
+- Snapshot / restore for document collections.
+- Async file uploads and chunked file I/O through `FileStore`.
+- PSRAM-aware internal allocators for payload and buffer-heavy paths.
 
-## Examples
-Quick start:
-
+## Quick Start
 ```cpp
 #include <ESPJsonDB.h>
 
@@ -30,171 +36,123 @@ void setup() {
     Serial.begin(115200);
 
     ESPJsonDBConfig cfg;
-    cfg.intervalMs = 3000;  // autosync every 3s
+    cfg.intervalMs = 2000;
     cfg.autosync = true;
-    cfg.usePSRAMBuffers = true; // optional: prefer PSRAM for internal byte buffers
+    cfg.defaultLoadPolicy = CollectionLoadPolicy::Eager;
 
-    if (!db.init("/test_db", cfg).ok()) {
+    db.configureCollection("audit", CollectionConfig{CollectionLoadPolicy::Delayed, 0, 0});
+
+    if (!db.init("/jsondb_v2", cfg).ok()) {
         Serial.println("DB init failed");
         return;
     }
 
-    db.onEvent([](DBEventType evt){
-        Serial.printf("Event: %s\n", dbEventTypeToString(evt));
-    });
-    db.onSyncStatus([](const DBSyncStatus& status){
+    Schema users;
+    users.fields = {
+        SchemaField{"email", FieldType::String, std::string("a@b.c")},
+        SchemaField{"username", FieldType::String},
+        SchemaField{"role", FieldType::String, std::string("user")},
+        SchemaField{"password", FieldType::String},
+        SchemaField{"age", FieldType::Int32},
+    };
+    users.fields[1].required = true;
+    users.fields[3].required = true;
+    db.registerSchema("users", users);
+
+    JsonDocument doc;
+    doc["username"] = "esp-jsondb";
+    doc["password"] = "secret";
+    auto created = db.create("users", doc.as<JsonObjectConst>());
+    if (!created.status.ok()) {
+        Serial.printf("Create failed: %s\n", created.status.message);
+        return;
+    }
+
+    auto found = db.findById("users", created.value);
+    if (found.status.ok()) {
         Serial.printf(
-            "Sync: %s source=%s collection=%s (%lu/%lu)\n",
-            dbSyncStageToString(status.stage),
-            dbSyncSourceToString(status.source),
-            status.collectionName.c_str(),
-            static_cast<unsigned long>(status.collectionsCompleted),
-            static_cast<unsigned long>(status.collectionsTotal)
+            "revision=%lu createdAtMs=%llu\n",
+            static_cast<unsigned long>(found.value.meta().revision),
+            static_cast<unsigned long long>(found.value.meta().createdAtMs)
         );
-    });
-    db.onError([](const DbStatus &st){
-        Serial.printf("Error: %s\n", st.message);
-    });
+    }
+
+    auto snap = db.getSnapshot(SnapshotMode::InMemoryConsistent);
+    serializeJsonPretty(snap, Serial);
 }
 
 void loop() {
-    // Call db.deinit() before shutting down the feature/task that owns the DB.
 }
 ```
 
-Working with documents is intentionally `JsonDocument`-centric:
+## File Storage
+Document records and arbitrary file blobs are separate subsystems.
 
 ```cpp
-JsonDocument doc;
-doc["email"] = "user@example.com";
-doc["role"] = "admin";
-auto createRes = db.create("users", doc.as<JsonObjectConst>());
+ESPJsonDBFileOptions opts;
+opts.chunkSize = 256;
 
-if (createRes.status.ok()) {
-    const std::string& id = createRes.value;
-    auto found = db.findById("users", id);
-    if (found.status.ok()) {
-        Serial.printf("Role: %s\n", found.value["role"].as<const char*>());
-    }
-    db.updateById("users", id, [](DocView& view){
-        view["role"].set("owner");
-    });
-    db.removeById("users", id);
-}
-```
+db.files().writeTextFile("notes/readme.txt", "hello");
 
-See the sketches under `examples/` for end-to-end flows:
-- `QuickStart` – database initialisation and simple CRUD.
-- `Collections` – create/drop collections at runtime.
-- `CacheDisabled` – migration note for the removed cache-disabled mode.
-- `BulkOperations` – batch inserts, updates, and queries.
-- `SchemaValidation` – enforce required fields and custom validators.
-- `UniqueFields` – per-collection uniqueness guarantees.
-- `References` – store one-to-many relations and populate them lazily.
-- `FileStreaming` – store and stream `txt` / `json` / `csv` / `bin` / custom extension payloads.
-- `LargeFileStreaming` – chunked upload + chunked verification for a large binary payload without full-buffer RAM copies.
-- `AsyncFileUpload` – non-blocking, callback-driven chunk upload on a background task.
-- `AsyncLargeFileUpload` – background chunk upload for a large binary payload with progress polling and streaming hash verification.
-
-File storage example:
-
-```cpp
-ESPJsonDBFileOptions fileOpts;
-fileOpts.chunkSize = 256;
-db.writeTextFile("notes/readme.txt", "hello from esp-jsondb");
-
-db.writeFileFromPath("firmware/chunk.bin", "/fw/chunk.bin", fileOpts);
-
-db.writeFileStream(
-    "firmware/chunk_cb.bin",
+auto uploadId = db.files().writeFileStreamAsync(
+    "firmware/chunk.bin",
     [](size_t requested, uint8_t* buffer, size_t& produced, bool& eof) -> DbStatus {
-        // fill `buffer` with up to `requested` bytes, set produced/eof
         produced = 0;
         eof = true;
         return {DbStatusCode::Ok, ""};
-    },
-    fileOpts
+    }
 );
 
-auto fileInfo = db.getFileInfo("notes/readme.txt");
-auto fileTree = db.listFiles("firmware", true);
+auto info = db.files().getFileInfo("notes/readme.txt");
 ```
 
-## Gotchas
-- Each collection lives in RAM; add PSRAM when handling large documents.
-- All payloads are JSON; converting to structs is optional but deserialisation still costs memory—size your `JsonDocument` objects carefully.
-- `onSyncStatus()` immediately invokes the callback once on the caller task with the latest snapshot, then invokes future updates from the task producing them (`init()` caller or sync task). Keep callbacks short.
-- Unique constraints and validators run inside write operations. Long-running validators will increase latency for the calling task.
-- `writeFileStream()` and `readFileStream()` hold the filesystem lock while processing the stream; use reasonable chunk sizes and avoid blocking stream sources/sinks.
-- `writeFileStreamAsync()` runs producer callbacks on a background task; callbacks must be short and thread-safe.
-- `getFileUploadState(uploadId)` retains terminal states for a bounded number of recent uploads; older upload IDs eventually return `NotFound`.
-- Uploaded files are not surfaced as collections or snapshots; use `getFileInfo()` / `listFiles()` to inspect persisted file storage under `/_files`.
-- `dropCollection()` only schedules on-disk removal; the collection directory and document files are deleted on the next autosync pass or `syncNow()`.
-- `/_files` is an internal reserved directory used for file storage and cannot be used as a collection name.
-- `getSnapshot()` and `restoreFromSnapshot()` currently cover document collections only; file storage under `/_files` is not included.
-- `usePSRAMBuffers` affects ESPJsonDB-owned byte buffers, decoded `DocView` `JsonDocument` pools on ArduinoJson v7, and long-lived internal DB containers (collection/schema/upload/diag maps and queues). Public return containers like `readFile()` still use the existing API types.
+## Core API
+- `DbStatus init(const char* baseDir = "/db", const ESPJsonDBConfig& cfg = {})`
+- `DbStatus configureCollection(const std::string& name, const CollectionConfig& cfg)`
+- `DbResult<Collection*> collection(name)`
+- `DbStatus registerSchema(name, schema)`
+- `DbStatus unregisterSchema(name)`
+- `JsonDocument getDiagnostics()`
+- `JsonDocument getSnapshot(SnapshotMode mode = SnapshotMode::OnDiskOnly)`
+- `DbStatus restoreFromSnapshot(const JsonDocument& snapshot)`
+- `FileStore& files()`
 
-## API Reference
-- `DbStatus init(const char* baseDir = "/db", const ESPJsonDBConfig& cfg = {})` – mount LittleFS (`cfg.initFileSystem`), preload collections into RAM cache (except names listed in `cfg.delayedCollectionSyncArray`), and start the sync worker task.
-- `void deinit()` – stop background tasks, cancel pending async uploads, and release runtime state. Safe before `init()` and safe to call repeatedly.
-- `bool isInitialized() const` – reports whether this instance is initialized and ready for DB operations.
-- `void onEvent(std::function<void(DBEventType)>)` / `void onError(std::function<void(const DbStatus&)>)` – receive sync, CRUD, and validation events.
-- `void onSyncStatus(std::function<void(const DBSyncStatus&)>)` – observe cold preload and `syncNow()` progress with stage/source/current collection counters.
-- `onSync(std::function<void()>)` was removed; migrate to `onSyncStatus(...)`.
-- Collection management: `collection(name)`, `dropCollection(name)`, `dropAll()`, `getAllCollectionName()`.
-  - `dropCollection(name)` removes in-memory state immediately and deletes the corresponding filesystem directory on the next autosync pass or explicit `syncNow()`.
-- Document helpers:
-  - Create: `create`, `createMany` (JSON array) plus direct `Collection::create*` variants.
-  - Read: `findById`, `findOne`, `findMany` (predicate or JSON filter) returning `DocView` so you can read/write lazily.
-  - Update/delete: `updateOne`, `updateById`, `updateMany`, `removeById`, `removeMany` (predicate or JSON filter).
-- Schemas: `registerSchema(name, Schema)`, `unRegisterSchema(name)`; `Schema` exposes fields with type/default/unique flags plus optional custom `validate` callables.
-- References: store `{ "collection": "authors", "_id": "..." }` inside a document and call `DocView::populate(fieldName)` to expand the reference into an embedded object.
-- Sync + diagnostics: `syncNow()`, `getDiag()` (JSON summary), `getSnapshot()` / `restoreFromSnapshot()` for backups.
-  - `getDiag()` does not touch the filesystem; it reports cached counters overlaid with currently loaded collection sizes.
-- File storage:
-  - `writeFileStream(path, in, bytesToWrite, opts)` / `readFileStream(path, out, chunkSize)` for chunked stream transfer.
-  - `writeFileStream(path, pullCb, opts)` for synchronous callback-driven chunk production.
-  - `writeFileFromPath(path, sourceFsPath, opts)` to copy a source file path into DB-managed file storage.
-  - `writeFileStreamAsync(path, pullCb, opts, doneCb)` for non-blocking producer-driven uploads.
-  - `cancelFileUpload(uploadId)`, `getFileUploadState(uploadId)` for async job control (terminal states are retained for a bounded recent window).
-  - `writeFile(path, data, size)` / `readFile(path)` for direct byte buffers.
-  - `writeTextFile(path, text)` / `readTextFile(path)` for UTF-8 or plain text payloads.
-  - `getFileInfo(path)` returns a JSON object with `path`, `name`, `exists`, `isDirectory`, and `size`.
-  - `listFiles(prefix, recursive)` returns a JSON document with `prefix`, `recursive`, and an `entries` array of file/directory metadata objects.
-  - `fileExists(path)`, `fileSize(path)`, `removeFile(path)` for file lifecycle utilities.
-  - File paths are relative to `/<baseDir>/_files` and path traversal segments are rejected.
-  - `ESPJsonDBFileOptions`: `overwrite` and `chunkSize` controls for stream writes.
-  - `DbFileUploadPullCb`: callback receives `(requested, buffer, produced, eof)` and fills bytes into `buffer`.
+## Snapshot Format
+Snapshots are document-only and exclude `/_files`.
 
-`ESPJsonDBConfig` knobs:
-- `intervalMs`, `stackSize`, `priority`, `coreId` – background autosync cadence & FreeRTOS tuning.
-- `autosync`, `coldSync`, `cacheEnabled` – sync behavior. `cacheEnabled=false` is rejected so writes stay on the sync task; init preloads collections unless they are listed in `delayedCollectionSyncArray`.
-- `delayedCollectionSyncArray` – collection names to skip during `init()` preload. Delayed collections load on first periodic autosync tick; if `autosync=false`, first `syncNow()` triggers one-time delayed preload. Accessing `collection(name)` earlier loads that delayed collection immediately.
-- `fs`, `initFileSystem`, `formatOnFail`, `partitionLabel`, `maxOpenFiles` – file system integration; pass your own `fs::FS` if you mount LittleFS elsewhere.
-- `usePSRAMBuffers` – prefer PSRAM for internal msgpack + file stream byte buffers, decoded `DocView` `JsonDocument` pools (ArduinoJson v7), and long-lived DB runtime container nodes, with safe fallback to default heap. Task stacks are always created from internal RAM.
+```json
+{
+  "collections": {
+    "users": [
+      {
+        "_id": "0123456789abcdef01234567",
+        "_meta": {
+          "createdAtMs": 1743100000000,
+          "updatedAtMs": 1743100005000,
+          "revision": 2,
+          "flags": 0
+        },
+        "username": "esp-jsondb"
+      }
+    ]
+  }
+}
+```
 
-Stack sizes are expressed in bytes.
-
-## Restrictions
-- Designed for ESP32 + LittleFS. Other platforms/FSes are untested.
-- Large documents are only practical on boards with PSRAM when the cache is enabled.
-- Requires ArduinoJson 6+, StreamUtils, and a FreeRTOS-capable environment (Arduino-ESP32 or ESP-IDF with C++17).
+## Notes
+- `SnapshotMode::InMemoryConsistent` triggers `syncNow()` before reading persisted state.
+- `CollectionLoadPolicy::Lazy` loads a collection on first access; `Delayed` defers load to background sync or explicit access.
+- `DocView::commit()` is the only write intent; metadata returned by `meta()` is durable record metadata.
+- `/_files` remains reserved and is not a valid collection name.
+- v2 is a breaking release and does not read legacy v1 `.mp` files directly.
 
 ## Tests
-An integration harness (`test/`) runs CRUD, bulk, schema, reference, and diagnostic scenarios via the `DbTester` class. Build it as a PlatformIO test or ESP-IDF component (include `test/dbTest.cpp` in your project) and run it on hardware to validate changes. Contributions that expand automated coverage are welcome.
-
-## Formatting Baseline
-
-This repository follows the firmware formatting baseline from `esptoolkit-template`:
-- `.clang-format` is the source of truth for C/C++/INO layout.
-- `.editorconfig` enforces tabs (`tab_width = 4`), LF endings, and final newline.
-- Format all tracked firmware sources with `bash scripts/format_cpp.sh`.
+The hardware-oriented test harness under `test/` exercises CRUD, schema validation, delayed loading, snapshots, diagnostics, and file storage. Run it in the same environment used for the library examples.
 
 ## License
 MIT — see [LICENSE.md](LICENSE.md).
 
 ## ESPToolKit
-- Check out other libraries: <https://github.com/orgs/ESPToolKit/repositories>
-- Hang out on Discord: <https://discord.gg/WG8sSqAy>
-- Support the project: <https://ko-fi.com/esptoolkit>
-- Visit the website: <https://www.esptoolkit.hu/>
+- Website: <https://www.esptoolkit.hu/>
+- GitHub: <https://github.com/ESPToolKit>
+- Ko-Fi: <https://ko-fi.com/esptoolkit>

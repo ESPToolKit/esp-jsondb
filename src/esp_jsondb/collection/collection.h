@@ -19,6 +19,7 @@
 #include "../utils/jsondb_allocator.h"
 #include "../utils/objectId.h"
 #include "../utils/schema.h"
+#include "../storage/record_store.h"
 
 class ESPJsonDB;
 
@@ -29,17 +30,18 @@ class Collection {
 	    const std::string &name,
 	    const Schema &schema,
 	    std::string baseDir,
-	    bool cacheEnabled,
+	    const CollectionConfig &config,
 	    bool usePSRAMBuffers,
 	    fs::FS &fs
 	);
 	const std::string &name() const {
 		return _name;
 	}
-	bool cacheEnabled() const {
-		return _cacheEnabled;
+	const CollectionConfig &config() const {
+		return _config;
 	}
-	void setCacheEnabled(bool enabled);
+	void setConfig(const CollectionConfig &config);
+	void setSchema(const Schema &schema);
 
 	// Create from JsonObjectConst (validated)
 	DbResult<std::string> create(JsonObjectConst data); // returns new _id
@@ -141,15 +143,25 @@ class Collection {
 	ESPJsonDB *_db = nullptr;
 	std::string _name;
 	Schema _schema;
+	CollectionConfig _config{};
 	// Use shared_ptr to keep records alive while views exist
 	DocumentMap _docs;
 	bool _dirty = false;
 	JsonDbVector<DocId> _deletedIds;      // files to remove on next flush
 	FrMutex _mu;                          // guards _docs, _deletedIds
 	std::string _baseDir;
-	bool _cacheEnabled = true;
 	bool _usePSRAMBuffers = false;
 	fs::FS *_fs = nullptr; // active filesystem (owned by caller)
+	RecordStore _recordStore;
+
+	using UniqueValueMap = std::map<std::string, DocId, std::less<std::string>,
+	                                JsonDbAllocator<std::pair<const std::string, DocId>>>;
+	using UniqueIndexMap = std::map<
+	    std::string,
+	    UniqueValueMap,
+	    std::less<std::string>,
+	    JsonDbAllocator<std::pair<const std::string, UniqueValueMap>>>;
+	UniqueIndexMap _uniqueIndexes;
 
 	DbStatus writeDocToFile(const std::string &baseDir, const DocumentRecord &r);
 	DbResult<std::shared_ptr<DocumentRecord>>
@@ -161,6 +173,11 @@ class Collection {
 	DbStatus persistImmediate(const std::shared_ptr<DocumentRecord> &rec);
 	size_t countDocumentsFromFs() const;
 	DocView makeView(std::shared_ptr<DocumentRecord> rec);
+	std::string collectionDir() const;
+	std::string uniqueValueKey(const SchemaField &field, JsonVariantConst value) const;
+	DbStatus addUniqueValuesLocked(JsonObjectConst obj, const DocId &id);
+	void removeUniqueValuesLocked(JsonObjectConst obj, const DocId &id);
+	DbStatus rebuildUniqueIndexesLocked();
 	DbStatus updateOneNoCache(
 	    std::function<bool(const DocView &)> pred,
 	    std::function<void(DocView &)> mutator,
@@ -199,6 +216,8 @@ template <typename Pred> DbResult<size_t> Collection::removeMany(Pred &&p) {
 		for (auto &id : toErase) {
 			auto it = _docs.find(id);
 			if (it != _docs.end()) {
+				DocView view(it->second, &_schema, nullptr, _db);
+				removeUniqueValuesLocked(view.asObjectConst(), it->first);
 				it->second->meta.removed = true;
 				_deletedIds.push_back(id);
 				_docs.erase(it);
@@ -222,6 +241,8 @@ DbResult<size_t> Collection::updateMany(Pred &&p, Mut &&m) {
 	for (auto &kv : _docs) {
 		DocView v(kv.second, &_schema, nullptr, _db);
 		if (p(v)) {
+			JsonDocument beforeDoc;
+			beforeDoc.set(v.asObjectConst());
 			m(v);
 			if (_schema.hasValidate()) {
 				auto obj = v.asObject();
@@ -239,6 +260,12 @@ DbResult<size_t> Collection::updateMany(Pred &&p, Mut &&m) {
 			}
 			auto st = v.commit();
 			if (st.ok()) {
+				removeUniqueValuesLocked(beforeDoc.as<JsonObjectConst>(), kv.second->meta.id);
+				auto afterStatus = addUniqueValuesLocked(v.asObjectConst(), kv.second->meta.id);
+				if (!afterStatus.ok()) {
+					v.discard();
+					continue;
+				}
 				++count;
 			}
 		}
@@ -258,6 +285,8 @@ template <typename Mut, typename> DbResult<size_t> Collection::updateMany(Mut &&
 	for (auto &kv : _docs) {
 		DocView v(kv.second, &_schema, nullptr, _db);
 		if (m(v)) {
+			JsonDocument beforeDoc;
+			beforeDoc.set(v.asObjectConst());
 			if (_schema.hasValidate()) {
 				auto obj = v.asObject();
 				auto ve = _schema.runPreSave(obj);
@@ -274,6 +303,12 @@ template <typename Mut, typename> DbResult<size_t> Collection::updateMany(Mut &&
 			}
 			auto st = v.commit();
 			if (st.ok()) {
+				removeUniqueValuesLocked(beforeDoc.as<JsonObjectConst>(), kv.second->meta.id);
+				auto afterStatus = addUniqueValuesLocked(v.asObjectConst(), kv.second->meta.id);
+				if (!afterStatus.ok()) {
+					v.discard();
+					continue;
+				}
 				++count;
 			}
 		} else {

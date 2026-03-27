@@ -3,6 +3,8 @@
 #include "../utils/fs_utils.h"
 #include "../utils/time_utils.h"
 
+#include <cstdio>
+
 namespace {
 std::shared_ptr<DocumentRecord> makeSharedDocumentRecord(bool usePSRAMBuffers) {
 	return std::allocate_shared<DocumentRecord>(
@@ -16,21 +18,28 @@ Collection::Collection(
     const std::string &name,
     const Schema &schema,
     std::string baseDir,
-    bool cacheEnabled,
+    const CollectionConfig &config,
     bool usePSRAMBuffers,
     fs::FS &fs
 )
-    : _db(&db), _name(name), _schema(schema),
+    : _db(&db), _name(name), _schema(schema), _config(config),
       _docs(DocIdLess{}, DocumentMapAllocator(usePSRAMBuffers)),
       _deletedIds(JsonDbAllocator<DocId>(usePSRAMBuffers)),
-      _baseDir(std::move(baseDir)), _cacheEnabled(true), _usePSRAMBuffers(usePSRAMBuffers),
-      _fs(&fs) {
-	(void)cacheEnabled;
+      _baseDir(std::move(baseDir)), _usePSRAMBuffers(usePSRAMBuffers), _fs(&fs),
+      _recordStore(fs, usePSRAMBuffers),
+      _uniqueIndexes(std::less<std::string>{},
+                     JsonDbAllocator<std::pair<const std::string, UniqueValueMap>>(usePSRAMBuffers)) {
 }
 
-void Collection::setCacheEnabled(bool enabled) {
-	(void)enabled;
-	_cacheEnabled = true;
+void Collection::setConfig(const CollectionConfig &config) {
+	FrLock lk(_mu);
+	_config = config;
+}
+
+void Collection::setSchema(const Schema &schema) {
+	FrLock lk(_mu);
+	_schema = schema;
+	(void)rebuildUniqueIndexesLocked();
 }
 
 DbStatus Collection::recordStatus(const DbStatus &st) const {
@@ -48,88 +57,119 @@ void Collection::noteDeletedInDiag(size_t count) const {
 	_db->noteDocumentDeleted(_name, static_cast<uint32_t>(count));
 }
 
+std::string Collection::collectionDir() const {
+	return joinPath(_baseDir, _name);
+}
+
+std::string Collection::uniqueValueKey(const SchemaField &field, JsonVariantConst value) const {
+	if (value.isNull())
+		return {};
+	char buffer[48];
+	switch (field.type) {
+	case FieldType::String:
+		return std::string("s:") + value.as<std::string>();
+	case FieldType::Int32:
+		return std::string("i32:") + std::to_string(value.as<int32_t>());
+	case FieldType::Int64:
+		return std::string("i64:") + std::to_string(value.as<int64_t>());
+	case FieldType::UInt32:
+		return std::string("u32:") + std::to_string(value.as<uint32_t>());
+	case FieldType::UInt64:
+		return std::string("u64:") + std::to_string(value.as<uint64_t>());
+	case FieldType::Float:
+		snprintf(buffer, sizeof(buffer), "f:%0.7g", static_cast<double>(value.as<float>()));
+		return buffer;
+	case FieldType::Double:
+		snprintf(buffer, sizeof(buffer), "d:%0.17g", value.as<double>());
+		return buffer;
+	case FieldType::Bool:
+		return value.as<bool>() ? "b:true" : "b:false";
+	case FieldType::Object:
+	case FieldType::Array:
+		break;
+	}
+	return {};
+}
+
+DbStatus Collection::addUniqueValuesLocked(JsonObjectConst obj, const DocId &id) {
+	for (const auto &field : _schema.fields) {
+		if (!field.unique || field.type == FieldType::Object || field.type == FieldType::Array)
+			continue;
+		const auto key = uniqueValueKey(field, obj[field.name]);
+		if (key.empty())
+			continue;
+		auto &fieldIndex = _uniqueIndexes[field.name ? field.name : ""];
+		auto it = fieldIndex.find(key);
+		if (it != fieldIndex.end() && it->second != id) {
+			return {DbStatusCode::ValidationFailed, "unique constraint violated"};
+		}
+		fieldIndex[key] = id;
+	}
+	return {DbStatusCode::Ok, ""};
+}
+
+void Collection::removeUniqueValuesLocked(JsonObjectConst obj, const DocId &id) {
+	for (const auto &field : _schema.fields) {
+		if (!field.unique || field.type == FieldType::Object || field.type == FieldType::Array)
+			continue;
+		const auto fieldName = field.name ? std::string(field.name) : std::string{};
+		auto fieldIt = _uniqueIndexes.find(fieldName);
+		if (fieldIt == _uniqueIndexes.end())
+			continue;
+		const auto key = uniqueValueKey(field, obj[field.name]);
+		if (key.empty())
+			continue;
+		auto valueIt = fieldIt->second.find(key);
+		if (valueIt != fieldIt->second.end() && valueIt->second == id) {
+			fieldIt->second.erase(valueIt);
+		}
+		if (fieldIt->second.empty()) {
+			_uniqueIndexes.erase(fieldIt);
+		}
+	}
+}
+
+DbStatus Collection::rebuildUniqueIndexesLocked() {
+	_uniqueIndexes.clear();
+	for (const auto &kv : _docs) {
+		JsonDocument doc;
+		if (!kv.second || kv.second->msgpack.empty()) {
+			continue;
+		}
+		auto err = deserializeMsgPack(doc, kv.second->msgpack.data(), kv.second->msgpack.size());
+		if (err) {
+			return {DbStatusCode::CorruptionDetected, "msgpack decode failed while rebuilding index"};
+		}
+		auto st = addUniqueValuesLocked(doc.as<JsonObjectConst>(), kv.first);
+		if (!st.ok())
+			return st;
+	}
+	return {DbStatusCode::Ok, ""};
+}
+
 DbStatus Collection::checkUniqueFieldsInCache(JsonObjectConst obj, const DocId *selfId) {
-	// Scan schema for fields marked unique and ensure no other doc has same value
 	for (const auto &f : _schema.fields) {
 		if (!f.unique)
 			continue;
-		// Only enforce on scalar types
 		if (f.type == FieldType::Object || f.type == FieldType::Array)
 			continue;
-		JsonVariantConst v = obj[f.name];
-		if (v.isNull())
+		const std::string fieldName = f.name ? std::string(f.name) : std::string{};
+		auto fit = _uniqueIndexes.find(fieldName);
+		if (fit == _uniqueIndexes.end())
 			continue;
-		for (const auto &kv : _docs) {
-			if (selfId && kv.first == *selfId)
-				continue;
-			DocView other(kv.second, &_schema, nullptr, _db);
-			JsonVariantConst ov = other[f.name];
-			if (!ov.isNull() && ov == v) {
-				return recordStatus({DbStatusCode::ValidationFailed, "unique constraint violated"});
-			}
+		const std::string key = uniqueValueKey(f, obj[f.name]);
+		if (key.empty())
+			continue;
+		auto vit = fit->second.find(key);
+		if (vit != fit->second.end() && (!selfId || vit->second != *selfId)) {
+			return recordStatus({DbStatusCode::ValidationFailed, "unique constraint violated"});
 		}
 	}
 	return recordStatus({DbStatusCode::Ok, ""});
 }
 
 DbStatus Collection::checkUniqueFieldsOnDisk(JsonObjectConst obj, const DocId *selfId) {
-	bool hasUnique = false;
-	for (const auto &field : _schema.fields) {
-		if (field.unique) {
-			hasUnique = true;
-			break;
-		}
-	}
-	if (!hasUnique) {
-		return recordStatus({DbStatusCode::Ok, ""});
-	}
-	// Enumerate all documents on disk and compare declared unique fields
-	JsonDbVector<DocId> ids{JsonDbAllocator<DocId>(_usePSRAMBuffers)};
-	std::string dir = joinPath(_baseDir, _name);
-	{
-		FrLock fs(g_fsMutex);
-		if (_fs->exists(dir.c_str())) {
-			File d = _fs->open(dir.c_str());
-			if (!d || !d.isDirectory()) {
-				return recordStatus({DbStatusCode::IoError, "open dir failed"});
-			}
-			for (File f = d.openNextFile(); f; f = d.openNextFile()) {
-				if (f.isDirectory())
-					continue;
-				String name = f.name();
-				std::string fname = name.c_str();
-				if (fname.size() < 3 || fname.substr(fname.size() - 3) != ".mp")
-					continue;
-				DocId parsedId;
-				if (parsedId.assign(fname.substr(0, fname.size() - 3))) {
-					ids.push_back(parsedId);
-				}
-			}
-		}
-	}
-	for (const auto &docId : ids) {
-		if (selfId && docId == *selfId)
-			continue;
-		auto rr = readDocFromFile(_baseDir, docId.c_str());
-		if (!rr.status.ok()) {
-			return rr.status;
-		}
-		DocView view(rr.value, &_schema, nullptr, _db);
-		for (const auto &field : _schema.fields) {
-			if (!field.unique)
-				continue;
-			if (field.type == FieldType::Object || field.type == FieldType::Array)
-				continue;
-			JsonVariantConst newVal = obj[field.name];
-			if (newVal.isNull())
-				continue;
-			JsonVariantConst existingVal = view[field.name];
-			if (!existingVal.isNull() && existingVal == newVal) {
-				return recordStatus({DbStatusCode::ValidationFailed, "unique constraint violated"});
-			}
-		}
-	}
-	return recordStatus({DbStatusCode::Ok, ""});
+	return checkUniqueFieldsInCache(obj, selfId);
 }
 
 DbStatus Collection::checkUniqueFields(JsonObjectConst obj, const DocId *selfId) {
@@ -162,9 +202,10 @@ DbResult<std::string> Collection::create(JsonObjectConst data) {
 			return res;
 		}
 		rec = makeSharedDocumentRecord(_usePSRAMBuffers);
-		rec->meta.createdAt = nowUtcMs();
-		rec->meta.updatedAt = rec->meta.createdAt;
+		rec->meta.createdAtMs = nowUtcMs();
+		rec->meta.updatedAtMs = rec->meta.createdAtMs;
 		rec->meta.id = ObjectId().toDocId();
+		rec->meta.revision = 1;
 		rec->meta.dirty = true;
 
 		// Serialize input data to MsgPack
@@ -179,6 +220,13 @@ DbResult<std::string> Collection::create(JsonObjectConst data) {
 
 		id = rec->meta.id.c_str();
 		_docs.emplace(rec->meta.id, rec);
+		auto uniqueStatus = addUniqueValuesLocked(obj, rec->meta.id);
+		if (!uniqueStatus.ok()) {
+			_docs.erase(rec->meta.id);
+			res.status = uniqueStatus;
+			recordStatus(res.status);
+			return res;
+		}
 		_dirty = true;
 
 		res.status = {DbStatusCode::Ok, ""};
@@ -311,6 +359,8 @@ DbStatus Collection::updateOne(
 	for (auto &kv : _docs) {
 		DocView v(kv.second, &_schema, nullptr, _db); // use outer lock
 		if (!pred || pred(v)) {
+			JsonDocument beforeDoc;
+			beforeDoc.set(v.asObjectConst());
 			mutator(v);
 			if (_schema.hasValidate()) {
 				auto obj = v.asObject();
@@ -329,6 +379,10 @@ DbStatus Collection::updateOne(
 			st = v.commit();
 			if (!st.ok())
 				return recordStatus(st);
+			removeUniqueValuesLocked(beforeDoc.as<JsonObjectConst>(), kv.second->meta.id);
+			auto uniqueStatus = addUniqueValuesLocked(v.asObjectConst(), kv.second->meta.id);
+			if (!uniqueStatus.ok())
+				return recordStatus(uniqueStatus);
 			// Only flag collection and emit update if record actually changed
 			if (kv.second->meta.dirty) {
 				_dirty = true;
@@ -341,9 +395,10 @@ DbStatus Collection::updateOne(
 	// If not found and create requested, create a new record and apply mutator
 	if (!updated && create) {
 		auto rec = makeSharedDocumentRecord(_usePSRAMBuffers);
-		rec->meta.createdAt = nowUtcMs();
-		rec->meta.updatedAt = rec->meta.createdAt;
+		rec->meta.createdAtMs = nowUtcMs();
+		rec->meta.updatedAtMs = rec->meta.createdAtMs;
 		rec->meta.id = ObjectId().toDocId();
+		rec->meta.revision = 0;
 		rec->meta.dirty = true;
 
 		DocView v(rec, &_schema, nullptr, _db);
@@ -368,6 +423,9 @@ DbStatus Collection::updateOne(
 		if (!st.ok())
 			return recordStatus(st);
 		_docs.emplace(rec->meta.id, std::move(rec));
+		auto uniqueStatus = addUniqueValuesLocked(v.asObjectConst(), v.meta().id);
+		if (!uniqueStatus.ok())
+			return recordStatus(uniqueStatus);
 		_dirty = true;
 		created = true;
 		st = {DbStatusCode::Ok, ""};
@@ -398,6 +456,8 @@ DbStatus Collection::updateOne(const JsonDocument &filter, const JsonDocument &p
 			}
 		}
 		if (match) {
+			JsonDocument beforeDoc;
+			beforeDoc.set(v.asObjectConst());
 			for (auto kvp : patch.as<JsonObjectConst>()) {
 				v[kvp.key().c_str()].set(kvp.value());
 			}
@@ -418,6 +478,10 @@ DbStatus Collection::updateOne(const JsonDocument &filter, const JsonDocument &p
 			st = v.commit();
 			if (!st.ok())
 				return recordStatus(st);
+			removeUniqueValuesLocked(beforeDoc.as<JsonObjectConst>(), kv.second->meta.id);
+			auto uniqueStatus = addUniqueValuesLocked(v.asObjectConst(), kv.second->meta.id);
+			if (!uniqueStatus.ok())
+				return recordStatus(uniqueStatus);
 			if (kv.second->meta.dirty) {
 				_dirty = true;
 				updated = true;
@@ -429,9 +493,10 @@ DbStatus Collection::updateOne(const JsonDocument &filter, const JsonDocument &p
 	if (!updated && create) {
 		// Create a new document merging filter and patch
 		auto rec = makeSharedDocumentRecord(_usePSRAMBuffers);
-		rec->meta.createdAt = nowUtcMs();
-		rec->meta.updatedAt = rec->meta.createdAt;
+		rec->meta.createdAtMs = nowUtcMs();
+		rec->meta.updatedAtMs = rec->meta.createdAtMs;
 		rec->meta.id = ObjectId().toDocId();
+		rec->meta.revision = 0;
 		rec->meta.dirty = true;
 
 		DocView v(rec, &_schema, nullptr, _db);
@@ -459,6 +524,9 @@ DbStatus Collection::updateOne(const JsonDocument &filter, const JsonDocument &p
 		if (!st.ok())
 			return recordStatus(st);
 		_docs.emplace(rec->meta.id, std::move(rec));
+		auto uniqueStatus = addUniqueValuesLocked(v.asObjectConst(), v.meta().id);
+		if (!uniqueStatus.ok())
+			return recordStatus(uniqueStatus);
 		_dirty = true;
 		created = true;
 		st = {DbStatusCode::Ok, ""};
@@ -486,6 +554,8 @@ DbStatus Collection::updateById(const std::string &id, std::function<void(DocVie
 		return recordStatus({DbStatusCode::NotFound, "document not found"});
 	}
 	DocView v(it->second, &_schema, nullptr, _db); // using outer lock
+	JsonDocument beforeDoc;
+	beforeDoc.set(v.asObjectConst());
 	mutator(v);
 	if (_schema.hasValidate()) {
 		auto obj = v.asObject();
@@ -504,6 +574,10 @@ DbStatus Collection::updateById(const std::string &id, std::function<void(DocVie
 	st = v.commit();
 	if (!st.ok())
 		return recordStatus(st);
+	removeUniqueValuesLocked(beforeDoc.as<JsonObjectConst>(), it->second->meta.id);
+	auto uniqueStatus = addUniqueValuesLocked(v.asObjectConst(), it->second->meta.id);
+	if (!uniqueStatus.ok())
+		return recordStatus(uniqueStatus);
 	if (it->second->meta.dirty) {
 		_dirty = true;
 		updated = true;
@@ -525,6 +599,8 @@ DbStatus Collection::removeById(const std::string &id) {
 	if (it == _docs.end())
 		return recordStatus({DbStatusCode::NotFound, "document not found"});
 	// Mark record as logically removed so outstanding views fail on commit
+	DocView view(it->second, &_schema, nullptr, _db);
+	removeUniqueValuesLocked(view.asObjectConst(), it->first);
 	it->second->meta.removed = true;
 	_deletedIds.push_back(it->first); // ensure file removal on sync
 	_docs.erase(it);
@@ -539,93 +615,20 @@ DbStatus Collection::removeById(const std::string &id) {
 }
 
 DbStatus Collection::writeDocToFile(const std::string &baseDir, const DocumentRecord &r) {
-	FrLock fs(g_fsMutex);
-	std::string dir = joinPath(baseDir, _name);
-	if (!fsEnsureDir(*_fs, dir)) {
-		return recordStatus({DbStatusCode::IoError, "mkdir failed"});
-	}
-	std::string finalPath = joinPath(dir, std::string(r.meta.id.c_str()) + ".mp");
-	std::string tmpPath = finalPath + ".tmp";
-	// Write to temp then rename for atomicity
-	File f = _fs->open(tmpPath.c_str(), FILE_WRITE);
-	if (!f)
-		return recordStatus({DbStatusCode::IoError, "open for write failed"});
-	// Buffer writes to coalesce small chunks if any
-	WriteBufferingStream bufferedFile(f, 256);
-	size_t w = bufferedFile.write(r.msgpack.data(), r.msgpack.size());
-	bufferedFile.flush();
-	f.close();
-	if (w != r.msgpack.size()) {
-		_fs->remove(tmpPath.c_str());
-		return recordStatus({DbStatusCode::IoError, "write failed"});
-	}
-	if (!_fs->rename(tmpPath.c_str(), finalPath.c_str())) {
-		_fs->remove(tmpPath.c_str());
-		return recordStatus({DbStatusCode::IoError, "rename failed"});
-	}
-	return recordStatus({DbStatusCode::Ok, ""});
+	(void)baseDir;
+	return recordStatus(_recordStore.write(collectionDir(), r));
 }
 
 DbResult<std::shared_ptr<DocumentRecord>>
 Collection::readDocFromFile(const std::string &baseDir, const std::string &id) {
-	DbResult<std::shared_ptr<DocumentRecord>> res{};
-	std::string path = joinPath(joinPath(baseDir, _name), id + ".mp");
-	FrLock fs(g_fsMutex);
-	File f = _fs->open(path.c_str(), FILE_READ);
-	if (!f) {
-		res.status = {DbStatusCode::NotFound, "file not found"};
-		recordStatus(res.status);
-		return res;
-	}
-	auto rec = makeSharedDocumentRecord(_usePSRAMBuffers);
-	if (!rec->meta.id.assign(id)) {
-		res.status = {DbStatusCode::Corrupted, "invalid document id"};
-		recordStatus(res.status);
-		return res;
-	}
-	rec->meta.createdAt = nowUtcMs();
-	rec->meta.updatedAt = rec->meta.createdAt;
-	rec->meta.dirty = false;
-
-	size_t sz = f.size();
-	rec->msgpack.resize(sz);
-	size_t r = f.read(rec->msgpack.data(), sz);
-	f.close();
-	if (r != sz) {
-		res.status = {DbStatusCode::IoError, "read failed"};
-		recordStatus(res.status);
-		return res;
-	}
-	res.status = {DbStatusCode::Ok, ""};
+	(void)baseDir;
+	auto res = _recordStore.read(collectionDir(), id);
 	recordStatus(res.status);
-	res.value = std::move(rec);
 	return res;
 }
 
 JsonDbVector<DocId> Collection::listDocumentIdsFromFs() const {
-	JsonDbVector<DocId> ids{JsonDbAllocator<DocId>(_usePSRAMBuffers)};
-	std::string dir = joinPath(_baseDir, _name);
-	{
-		FrLock fs(g_fsMutex);
-		if (!_fs->exists(dir.c_str()))
-			return ids;
-		File d = _fs->open(dir.c_str());
-		if (!d || !d.isDirectory())
-			return ids;
-		for (File f = d.openNextFile(); f; f = d.openNextFile()) {
-			if (f.isDirectory())
-				continue;
-			String name = f.name();
-			std::string fname = name.c_str();
-			if (fname.size() < 3 || fname.substr(fname.size() - 3) != ".mp")
-				continue;
-			DocId parsedId;
-			if (parsedId.assign(fname.substr(0, fname.size() - 3))) {
-				ids.push_back(parsedId);
-			}
-		}
-	}
-	return ids;
+	return _recordStore.listIds(collectionDir());
 }
 
 size_t Collection::countDocumentsFromFs() const {
@@ -690,9 +693,10 @@ DbStatus Collection::updateOneNoCache(
 	}
 	if (create) {
 		auto rec = makeSharedDocumentRecord(_usePSRAMBuffers);
-		rec->meta.createdAt = nowUtcMs();
-		rec->meta.updatedAt = rec->meta.createdAt;
+		rec->meta.createdAtMs = nowUtcMs();
+		rec->meta.updatedAtMs = rec->meta.createdAtMs;
 		rec->meta.id = ObjectId().toDocId();
+		rec->meta.revision = 0;
 		rec->meta.dirty = true;
 		auto view = makeView(rec);
 		view.asObject();
@@ -764,9 +768,10 @@ DbStatus Collection::updateOneJsonNoCache(
 	}
 	if (create) {
 		auto rec = makeSharedDocumentRecord(_usePSRAMBuffers);
-		rec->meta.createdAt = nowUtcMs();
-		rec->meta.updatedAt = rec->meta.createdAt;
+		rec->meta.createdAtMs = nowUtcMs();
+		rec->meta.updatedAtMs = rec->meta.createdAtMs;
 		rec->meta.id = ObjectId().toDocId();
+		rec->meta.revision = 0;
 		rec->meta.dirty = true;
 		auto view = makeView(rec);
 		auto obj = view.asObject();
@@ -826,16 +831,13 @@ DbStatus Collection::updateByIdNoCache(
 }
 
 DbStatus Collection::removeByIdNoCache(const std::string &id, bool &removed) {
-	std::string path = joinPath(joinPath(_baseDir, _name), id + ".mp");
-	{
-		FrLock fs(g_fsMutex);
-		if (!_fs->exists(path.c_str())) {
-			return recordStatus({DbStatusCode::NotFound, "document not found"});
-		}
-		if (!_fs->remove(path.c_str())) {
-			return recordStatus({DbStatusCode::IoError, "remove failed"});
-		}
+	DocId docId;
+	if (!docId.assign(id)) {
+		return recordStatus({DbStatusCode::NotFound, "document not found"});
 	}
+	auto st = _recordStore.remove(collectionDir(), docId);
+	if (!st.ok())
+		return recordStatus(st);
 	removed = true;
 	return recordStatus({DbStatusCode::Ok, ""});
 }
@@ -843,39 +845,21 @@ DbStatus Collection::removeByIdNoCache(const std::string &id, bool &removed) {
 DbStatus Collection::loadFromFs(const std::string &baseDir) {
 	// First, under FS mutex, collect the list of document IDs to load.
 	JsonDbVector<DocId> ids{JsonDbAllocator<DocId>(_usePSRAMBuffers)};
-	std::string dir = joinPath(baseDir, _name);
-	{
-		FrLock fs(g_fsMutex);
-		if (!_fs->exists(dir.c_str())) {
-			// Nothing to load yet; create directory lazily on write
-			return recordStatus({DbStatusCode::Ok, ""});
-		}
-		File d = _fs->open(dir.c_str());
-		if (!d || !d.isDirectory()) {
-			return recordStatus({DbStatusCode::IoError, "open dir failed"});
-		}
-		for (File f = d.openNextFile(); f; f = d.openNextFile()) {
-			if (f.isDirectory())
-				continue;
-			String name = f.name();
-			f.close();
-			std::string n = name.c_str();
-			// Expect <id>.mp
-			if (n.size() >= 3 && n.substr(n.size() - 3) == ".mp") {
-				DocId parsedId;
-				if (parsedId.assign(n.substr(0, n.size() - 3))) {
-					ids.push_back(parsedId);
-				}
-			}
-		}
-	}
+	(void)baseDir;
+	ids = listDocumentIdsFromFs();
 
 	// Now, outside FS mutex, read each document file (readDocFromFile acquires FS mutex per file)
 	for (const auto &id : ids) {
-		auto rr = readDocFromFile(baseDir, id.c_str());
+		auto rr = readDocFromFile(_baseDir, id.c_str());
 		if (rr.status.ok()) {
 			_docs.emplace(rr.value->meta.id, std::move(rr.value));
 		}
+	}
+	{
+		FrLock lk(_mu);
+		auto indexStatus = rebuildUniqueIndexesLocked();
+		if (!indexStatus.ok())
+			return recordStatus(indexStatus);
 	}
 	return recordStatus({DbStatusCode::Ok, ""});
 }
@@ -885,7 +869,7 @@ DbStatus Collection::flushDirtyToFs(const std::string &baseDir, bool &didWork) {
 	// Snapshot work under lock
 	JsonDbVector<DocId> toDelete{JsonDbAllocator<DocId>(_usePSRAMBuffers)};
 	struct PendingWrite {
-		DocId id;
+		DocumentMeta meta;
 		JsonDbVector<uint8_t> bytes;
 
 		explicit PendingWrite(bool usePSRAMBuffers)
@@ -900,7 +884,7 @@ DbStatus Collection::flushDirtyToFs(const std::string &baseDir, bool &didWork) {
 			auto &rec = kv.second;
 			if (rec->meta.dirty) {
 				PendingWrite pending(_usePSRAMBuffers);
-				pending.id = rec->meta.id;
+				pending.meta = rec->meta;
 				pending.bytes = rec->msgpack;
 				toWrite.push_back(std::move(pending));
 				rec->meta.dirty = false;
@@ -912,24 +896,17 @@ DbStatus Collection::flushDirtyToFs(const std::string &baseDir, bool &didWork) {
 	// Process deletions (FS serialized by global mutex)
 	if (!toDelete.empty()) {
 		didWork = true;
-		std::string dir = joinPath(baseDir, _name);
 		for (const auto &id : toDelete) {
-			std::string path = joinPath(dir, std::string(id.c_str()) + ".mp");
-			{
-				FrLock fs(g_fsMutex);
-				if (_fs->exists(path.c_str())) {
-					if (!_fs->remove(path.c_str())) {
-						return recordStatus({DbStatusCode::IoError, "document delete failed"});
-					}
-				}
-			}
+			auto st = _recordStore.remove(collectionDir(), id);
+			if (!st.ok() && st.code != DbStatusCode::NotFound)
+				return recordStatus({DbStatusCode::IoError, "document delete failed"});
 		}
 	}
 
 	// Flush writes
 	for (auto &pw : toWrite) {
 		DocumentRecord tmp(_usePSRAMBuffers);
-		tmp.meta.id = pw.id;
+		tmp.meta = pw.meta;
 		tmp.msgpack = std::move(pw.bytes);
 		auto st = writeDocToFile(baseDir, tmp);
 		if (!st.ok())

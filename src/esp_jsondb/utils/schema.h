@@ -3,16 +3,16 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
-#include <cstdlib>
-#include <cstring>
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <type_traits>
+#include <variant>
 #include <vector>
 
 struct ValidationError {
-	bool valid;
-	const char *message; // lifetime must be static or managed externally
+	bool valid = true;
+	const char *message = "";
 };
 
 using ValidateFn = std::function<ValidationError(const JsonObjectConst &)>;
@@ -21,19 +21,137 @@ using PostLoadFn = std::function<void(JsonObject &)>;
 
 enum class FieldType {
 	String,
-	Int,
+	Int32,
+	Int64,
+	UInt32,
+	UInt64,
 	Float,
+	Double,
 	Bool,
 	Object,
 	Array,
+	Int = Int32,
 };
 
+struct EmptyObjectTag {};
+struct EmptyArrayTag {};
+
+using JsonDefaultValue = std::variant<
+    std::monostate,
+    std::string,
+    int32_t,
+    int64_t,
+    uint32_t,
+    uint64_t,
+    float,
+    double,
+    bool,
+    EmptyObjectTag,
+    EmptyArrayTag>;
+
 struct SchemaField {
-	const char *name;
-	FieldType type;
-	const char *defaultValue = nullptr;
-	bool unique = false; // enforce per-collection uniqueness when true
+	const char *name = nullptr;
+	FieldType type = FieldType::String;
+	bool required = false;
+	bool unique = false;
+	bool hasDefault = false;
+	JsonDefaultValue defaultValue{};
+
+	SchemaField() = default;
+
+	SchemaField(const char *fieldName, FieldType fieldType)
+	    : name(fieldName), type(fieldType) {
+	}
+
+	SchemaField(const char *fieldName, FieldType fieldType, const char *defaultString)
+	    : name(fieldName), type(fieldType), hasDefault(defaultString != nullptr),
+	      defaultValue(defaultString ? JsonDefaultValue(std::string(defaultString))
+	                                 : JsonDefaultValue(std::monostate{})) {
+	}
+
+	SchemaField(const char *fieldName, FieldType fieldType, const char *defaultString, bool uniqueFlag)
+	    : name(fieldName), type(fieldType), unique(uniqueFlag),
+	      hasDefault(defaultString != nullptr),
+	      defaultValue(defaultString ? JsonDefaultValue(std::string(defaultString))
+	                                 : JsonDefaultValue(std::monostate{})) {
+	}
+
+	SchemaField(const char *fieldName, FieldType fieldType, JsonDefaultValue value, bool uniqueFlag = false)
+	    : name(fieldName), type(fieldType), unique(uniqueFlag), hasDefault(true),
+	      defaultValue(std::move(value)) {
+	}
 };
+
+inline bool schemaFieldTypeMatches(JsonVariantConst value, FieldType type) {
+	switch (type) {
+	case FieldType::String:
+		return value.is<const char *>() || value.is<std::string>() || value.is<String>();
+	case FieldType::Int32:
+		return value.is<int32_t>() || value.is<int>();
+	case FieldType::Int64:
+		return value.is<int64_t>();
+	case FieldType::UInt32:
+		return value.is<uint32_t>();
+	case FieldType::UInt64:
+		return value.is<uint64_t>();
+	case FieldType::Float:
+		return value.is<float>();
+	case FieldType::Double:
+		return value.is<double>() || value.is<float>();
+	case FieldType::Bool:
+		return value.is<bool>();
+	case FieldType::Object:
+		return value.is<JsonObjectConst>();
+	case FieldType::Array:
+		return value.is<JsonArrayConst>();
+	}
+	return false;
+}
+
+inline void schemaApplyDefaultValue(JsonObject obj, const SchemaField &field) {
+	if (!field.name || !field.hasDefault)
+		return;
+
+	if (std::holds_alternative<std::string>(field.defaultValue)) {
+		obj[field.name] = std::get<std::string>(field.defaultValue).c_str();
+		return;
+	}
+	if (std::holds_alternative<int32_t>(field.defaultValue)) {
+		obj[field.name] = std::get<int32_t>(field.defaultValue);
+		return;
+	}
+	if (std::holds_alternative<int64_t>(field.defaultValue)) {
+		obj[field.name] = std::get<int64_t>(field.defaultValue);
+		return;
+	}
+	if (std::holds_alternative<uint32_t>(field.defaultValue)) {
+		obj[field.name] = std::get<uint32_t>(field.defaultValue);
+		return;
+	}
+	if (std::holds_alternative<uint64_t>(field.defaultValue)) {
+		obj[field.name] = std::get<uint64_t>(field.defaultValue);
+		return;
+	}
+	if (std::holds_alternative<float>(field.defaultValue)) {
+		obj[field.name] = std::get<float>(field.defaultValue);
+		return;
+	}
+	if (std::holds_alternative<double>(field.defaultValue)) {
+		obj[field.name] = std::get<double>(field.defaultValue);
+		return;
+	}
+	if (std::holds_alternative<bool>(field.defaultValue)) {
+		obj[field.name] = std::get<bool>(field.defaultValue);
+		return;
+	}
+	if (std::holds_alternative<EmptyObjectTag>(field.defaultValue)) {
+		obj[field.name].to<JsonObject>();
+		return;
+	}
+	if (std::holds_alternative<EmptyArrayTag>(field.defaultValue)) {
+		obj[field.name].to<JsonArray>();
+	}
+}
 
 struct Schema {
 	std::vector<SchemaField> fields;
@@ -48,73 +166,37 @@ struct Schema {
 	}
 
 	inline void applyDefaults(JsonObject obj) const {
-		for (const auto &f : fields) {
-			JsonVariant v = obj[f.name];
-			if (!v && f.defaultValue) {
-				switch (f.type) {
-				case FieldType::String:
-					obj[f.name] = f.defaultValue;
-					break;
-				case FieldType::Int:
-					obj[f.name] = atoi(f.defaultValue);
-					break;
-				case FieldType::Float:
-					obj[f.name] = atof(f.defaultValue);
-					break;
-				case FieldType::Bool:
-					obj[f.name] =
-					    (strcmp(f.defaultValue, "true") == 0 || strcmp(f.defaultValue, "1") == 0);
-					break;
-				case FieldType::Object:
-					obj[f.name].to<JsonObject>();
-					break;
-				case FieldType::Array:
-					obj[f.name].to<JsonArray>();
-					break;
-				}
+		for (const auto &field : fields) {
+			JsonVariant value = obj[field.name];
+			if (value.isNull() && field.hasDefault) {
+				schemaApplyDefaultValue(obj, field);
 			}
 		}
 	}
 
-	inline bool validateTypes(JsonObjectConst obj) const {
-		for (const auto &f : fields) {
-			JsonVariantConst v = obj[f.name];
-			if (!v.isNull()) {
-				switch (f.type) {
-				case FieldType::String:
-					if (!v.is<const char *>() && !v.is<std::string>() && !v.is<String>())
-						return false;
-					break;
-				case FieldType::Int:
-					if (!v.is<int>())
-						return false;
-					break;
-				case FieldType::Float:
-					if (!v.is<float>())
-						return false;
-					break;
-				case FieldType::Bool:
-					if (!v.is<bool>())
-						return false;
-					break;
-				case FieldType::Object:
-					if (!v.is<JsonObjectConst>())
-						return false;
-					break;
-				case FieldType::Array:
-					if (!v.is<JsonArrayConst>())
-						return false;
-					break;
+	inline ValidationError validateFields(JsonObjectConst obj) const {
+		for (const auto &field : fields) {
+			if (!field.name || !*field.name)
+				continue;
+			JsonVariantConst value = obj[field.name];
+			if (value.isNull()) {
+				if (field.required) {
+					return {false, "schema: required field missing"};
 				}
+				continue;
+			}
+			if (!schemaFieldTypeMatches(value, field.type)) {
+				return {false, "schema: invalid type"};
 			}
 		}
-		return true;
+		return {true, ""};
 	}
 
 	inline ValidationError runPreSave(JsonObject &o) const {
 		applyDefaults(o);
-		if (!validateTypes(o))
-			return {false, "schema: invalid type"};
+		auto fieldStatus = validateFields(o);
+		if (!fieldStatus.valid)
+			return fieldStatus;
 		if (preSave)
 			return preSave(o);
 		if (validate)
@@ -123,8 +205,9 @@ struct Schema {
 	}
 
 	inline ValidationError runValidate(const JsonObjectConst &o) const {
-		if (!validateTypes(o))
-			return {false, "schema: invalid type"};
+		auto fieldStatus = validateFields(o);
+		if (!fieldStatus.valid)
+			return fieldStatus;
 		if (validate)
 			return validate(o);
 		return {true, ""};

@@ -126,7 +126,8 @@ DbStatus DocView::encode() {
 	if (written != sz) {
 		return recordStatus({DbStatusCode::IoError, "serialize msgpack size mismatch"});
 	}
-	_rec->meta.updatedAt = nowUtcMs();
+	_rec->meta.updatedAtMs = nowUtcMs();
+	_rec->meta.revision = static_cast<uint32_t>(_rec->meta.revision + 1U);
 	_rec->meta.dirty = true;
 	_dirtyLocally = false;
 	return recordStatus({DbStatusCode::Ok, ""});

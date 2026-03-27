@@ -14,6 +14,9 @@ using DirEntryVector = JsonDbVector<DirEntry>;
 
 FrMutex g_fsMutex; // definition of global FS mutex
 
+ESPJsonDB::ESPJsonDB() : _fileStore(std::make_unique<FileStore>(*this)) {
+}
+
 DbStatus ESPJsonDB::ensureFsReady() {
 	_fs = _cfg.fs ? _cfg.fs : &LittleFS;
 	if (!_fs) {
@@ -36,7 +39,7 @@ DbStatus ESPJsonDB::ensureFsReady() {
 
 DbStatus ESPJsonDB::ensureReady() const {
 	if (!isInitialized() || !_fs || _baseDir.empty()) {
-		return {DbStatusCode::InvalidArgument, "database not initialized"};
+		return {DbStatusCode::NotInitialized, "database not initialized"};
 	}
 	return {DbStatusCode::Ok, ""};
 }
@@ -46,6 +49,7 @@ void ESPJsonDB::rebindAllocatorAwareStateLocked(bool preserveData) {
 
 	auto oldCols = std::move(_cols);
 	auto oldSchemas = std::move(_schemas);
+	auto oldCollectionConfigs = std::move(_collectionConfigs);
 	auto oldColsToDelete = std::move(_colsToDelete);
 	auto oldEventCbs = std::move(_eventCbs);
 	auto oldErrorCbs = std::move(_errorCbs);
@@ -60,6 +64,8 @@ void ESPJsonDB::rebindAllocatorAwareStateLocked(bool preserveData) {
 	CollectionMap newCols{
 	    std::less<std::string>{}, CollectionMap::allocator_type(usePSRAMBuffers)};
 	SchemaMap newSchemas{std::less<std::string>{}, SchemaMap::allocator_type(usePSRAMBuffers)};
+	CollectionConfigMap newCollectionConfigs{
+	    std::less<std::string>{}, CollectionConfigMap::allocator_type(usePSRAMBuffers)};
 	StringVector newColsToDelete{JsonDbAllocator<std::string>(usePSRAMBuffers)};
 	EventCallbackVector newEventCbs{
 	    JsonDbAllocator<std::function<void(DBEventType)>>(usePSRAMBuffers)};
@@ -87,6 +93,9 @@ void ESPJsonDB::rebindAllocatorAwareStateLocked(bool preserveData) {
 		}
 		for (auto &kv : oldSchemas) {
 			newSchemas.emplace(kv.first, kv.second);
+		}
+		for (auto &kv : oldCollectionConfigs) {
+			newCollectionConfigs.emplace(kv.first, kv.second);
 		}
 		for (auto &name : oldColsToDelete) {
 			newColsToDelete.push_back(std::move(name));
@@ -119,6 +128,7 @@ void ESPJsonDB::rebindAllocatorAwareStateLocked(bool preserveData) {
 
 	_cols = std::move(newCols);
 	_schemas = std::move(newSchemas);
+	_collectionConfigs = std::move(newCollectionConfigs);
 	_colsToDelete = std::move(newColsToDelete);
 	_eventCbs = std::move(newEventCbs);
 	_errorCbs = std::move(newErrorCbs);
@@ -185,10 +195,12 @@ std::string ESPJsonDB::fileRootDir() const {
 
 void ESPJsonDB::rebuildDelayedCollectionStateFromConfigLocked() {
 	_pendingDelayedCollections.clear();
-	for (const auto &name : _cfg.delayedCollectionSyncArray) {
-		if (name.empty() || isReservedName(name))
+	for (const auto &kv : _collectionConfigs) {
+		if (kv.first.empty() || isReservedName(kv.first))
 			continue;
-		_pendingDelayedCollections[name] = true;
+		if (kv.second.loadPolicy == CollectionLoadPolicy::Delayed) {
+			_pendingDelayedCollections[kv.first] = true;
+		}
 	}
 	_delayedPreloadPhaseCompleted = _pendingDelayedCollections.empty();
 }
@@ -217,6 +229,7 @@ DbStatus ESPJsonDB::preloadCollectionFromFsByName(
 	}
 
 	Schema sc{};
+	CollectionConfig collectionCfg{};
 	{
 		FrLock lk(_mu);
 		auto it = _cols.find(name);
@@ -231,10 +244,17 @@ DbStatus ESPJsonDB::preloadCollectionFromFsByName(
 		auto sit = _schemas.find(name);
 		if (sit != _schemas.end())
 			sc = sit->second;
+		auto cit = _collectionConfigs.find(name);
+		if (cit != _collectionConfigs.end()) {
+			collectionCfg = cit->second;
+		} else {
+			collectionCfg.loadPolicy = _cfg.defaultLoadPolicy;
+		}
 	}
 
-	auto col =
-	    std::make_unique<Collection>(*this, name, sc, _baseDir, true, _cfg.usePSRAMBuffers, *_fs);
+	auto col = std::make_unique<Collection>(
+	    *this, name, sc, _baseDir, collectionCfg, _cfg.usePSRAMBuffers, *_fs
+	);
 	auto st = col->loadFromFs(_baseDir);
 	if (!st.ok())
 		return st;
@@ -438,11 +458,6 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 	if (isInitialized()) {
 		deinit();
 	}
-	if (!cfg.cacheEnabled) {
-		return setLastError(
-		    {DbStatusCode::InvalidArgument, "cacheEnabled=false is no longer supported"}
-		);
-	}
 	_initialized.store(false, std::memory_order_release);
 	_baseDir = baseDir ? baseDir : std::string("/db");
 	// Normalize baseDir: ensure leading '/', drop trailing '/'
@@ -456,7 +471,6 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 		_baseDir.pop_back();
 	}
 	_cfg = cfg;
-	_cfg.cacheEnabled = true;
 	_syncStopRequested.store(false, std::memory_order_release);
 	_syncKickRequested.store(false, std::memory_order_release);
 	_syncRequestSeq.store(0, std::memory_order_release);
@@ -507,22 +521,48 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
+DbStatus ESPJsonDB::configureCollection(const std::string &name, const CollectionConfig &cfg) {
+	if (name.empty() || isReservedName(name)) {
+		return setLastError({DbStatusCode::InvalidArgument, "reserved collection name"});
+	}
+	FrLock lk(_mu);
+	_collectionConfigs[name] = cfg;
+	auto it = _cols.find(name);
+	if (it != _cols.end() && it->second) {
+		it->second->setConfig(cfg);
+	}
+	rebuildDelayedCollectionStateFromConfigLocked();
+	return setLastError({DbStatusCode::Ok, ""});
+}
+
 DbStatus ESPJsonDB::registerSchema(const std::string &name, const Schema &s) {
 	if (isReservedName(name)) {
 		return setLastError({DbStatusCode::InvalidArgument, "reserved collection name"});
 	}
 	FrLock lk(_mu);
 	_schemas[name] = s;
+	auto it = _cols.find(name);
+	if (it != _cols.end() && it->second) {
+		it->second->setSchema(s);
+	}
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
-DbStatus ESPJsonDB::unRegisterSchema(const std::string &name) {
+DbStatus ESPJsonDB::unregisterSchema(const std::string &name) {
 	if (isReservedName(name)) {
 		return setLastError({DbStatusCode::InvalidArgument, "reserved collection name"});
 	}
 	FrLock lk(_mu);
 	_schemas.erase(name);
+	auto it = _cols.find(name);
+	if (it != _cols.end() && it->second) {
+		it->second->setSchema(Schema{});
+	}
 	return setLastError({DbStatusCode::Ok, ""});
+}
+
+DbStatus ESPJsonDB::unRegisterSchema(const std::string &name) {
+	return unregisterSchema(name);
 }
 
 void ESPJsonDB::onEvent(const std::function<void(DBEventType)> &cb) {
@@ -609,6 +649,7 @@ DbResult<Collection *> ESPJsonDB::collection(const std::string &name) {
 		return res;
 	}
 	bool pendingDelayed = false;
+	CollectionConfig collectionCfg{};
 	{
 		FrLock lk(_mu);
 		auto it = _cols.find(name);
@@ -618,9 +659,16 @@ DbResult<Collection *> ESPJsonDB::collection(const std::string &name) {
 			return res;
 		}
 		pendingDelayed = _pendingDelayedCollections.find(name) != _pendingDelayedCollections.end();
+		auto cit = _collectionConfigs.find(name);
+		if (cit != _collectionConfigs.end()) {
+			collectionCfg = cit->second;
+		} else {
+			collectionCfg.loadPolicy = _cfg.defaultLoadPolicy;
+		}
 	}
 
-	if (pendingDelayed) {
+	if (pendingDelayed || (collectionCfg.loadPolicy == CollectionLoadPolicy::Lazy &&
+	                       collectionDirExistsOnFs(name))) {
 		const bool existedOnFs = collectionDirExistsOnFs(name);
 		bool inserted = false;
 		auto preloadStatus = preloadCollectionFromFsByName(name, true, &inserted);
@@ -643,6 +691,7 @@ DbResult<Collection *> ESPJsonDB::collection(const std::string &name) {
 		return res;
 	}
 	Schema sc{};
+	CollectionConfig collectionCfg{};
 	{
 		FrLock lk(_mu);
 		auto existing = _cols.find(name);
@@ -654,9 +703,16 @@ DbResult<Collection *> ESPJsonDB::collection(const std::string &name) {
 		auto sit = _schemas.find(name);
 		if (sit != _schemas.end())
 			sc = sit->second;
+		auto cit = _collectionConfigs.find(name);
+		if (cit != _collectionConfigs.end()) {
+			collectionCfg = cit->second;
+		} else {
+			collectionCfg.loadPolicy = _cfg.defaultLoadPolicy;
+		}
 	}
-	auto col =
-	    std::make_unique<Collection>(*this, name, sc, _baseDir, true, _cfg.usePSRAMBuffers, *_fs);
+	auto col = std::make_unique<Collection>(
+	    *this, name, sc, _baseDir, collectionCfg, _cfg.usePSRAMBuffers, *_fs
+	);
 	Collection *ptr = nullptr;
 	bool created = false;
 	{
@@ -1255,6 +1311,16 @@ DbStatus ESPJsonDB::preloadCollectionsFromFs(bool emitStatus, DBSyncSource statu
 				continue;
 			if (_pendingDelayedCollections.find(name) != _pendingDelayedCollections.end())
 				continue;
+			auto cit = _collectionConfigs.find(name);
+			const auto policy =
+			    cit != _collectionConfigs.end() ? cit->second.loadPolicy : _cfg.defaultLoadPolicy;
+			if (policy == CollectionLoadPolicy::Delayed) {
+				_pendingDelayedCollections[name] = true;
+				_delayedPreloadPhaseCompleted = false;
+				continue;
+			}
+			if (policy != CollectionLoadPolicy::Eager)
+				continue;
 			preloadNames.push_back(name);
 		}
 	}
@@ -1323,7 +1389,7 @@ DbStatus ESPJsonDB::preloadCollectionsFromFs(bool emitStatus, DBSyncSource statu
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
-JsonDocument ESPJsonDB::getDiag() {
+JsonDocument ESPJsonDB::getDiagnostics() {
 	// Build diagnostics from cached FS snapshot, overlapped with live loaded collections
 	// No filesystem access here.
 	JsonDocument doc;
@@ -1383,8 +1449,6 @@ JsonDocument ESPJsonDB::getDiag() {
 	cfg["baseDir"] = baseDirCopy.c_str();
 	cfg["intervalMs"] = cfgCopy.intervalMs;
 	cfg["autosync"] = cfgCopy.autosync;
-	cfg["coldSync"] = cfgCopy.coldSync;
-	cfg["cacheEnabled"] = cfgCopy.cacheEnabled;
 	cfg["initFileSystem"] = cfgCopy.initFileSystem;
 	cfg["formatOnFail"] = cfgCopy.formatOnFail;
 	cfg["maxOpenFiles"] = static_cast<uint32_t>(cfgCopy.maxOpenFiles);
@@ -1393,13 +1457,22 @@ JsonDocument ESPJsonDB::getDiag() {
 	cfg["priority"] = static_cast<uint32_t>(cfgCopy.priority);
 	cfg["coreId"] = static_cast<int32_t>(cfgCopy.coreId);
 	cfg["usePSRAMBuffers"] = cfgCopy.usePSRAMBuffers;
-	auto delayedArr = cfg["delayedCollectionSyncArray"].to<JsonArray>();
-	for (const auto &name : cfgCopy.delayedCollectionSyncArray) {
-		delayedArr.add(name.c_str());
+	cfg["defaultLoadPolicy"] = static_cast<uint8_t>(cfgCopy.defaultLoadPolicy);
+
+	auto policies = cfg["collectionLoadPolicies"].to<JsonObject>();
+	{
+		FrLock lk(_mu);
+		for (const auto &kv : _collectionConfigs) {
+			policies[kv.first.c_str()] = static_cast<uint8_t>(kv.second.loadPolicy);
+		}
 	}
 
 	setLastError({DbStatusCode::Ok, ""});
 	return doc;
+}
+
+JsonDocument ESPJsonDB::getDiag() {
+	return getDiagnostics();
 }
 
 DbStatus ESPJsonDB::dropAll() {
@@ -1434,7 +1507,7 @@ DbStatus ESPJsonDB::dropAll() {
 	return syncNow();
 }
 
-std::vector<std::string> ESPJsonDB::getAllCollectionName() {
+std::vector<std::string> ESPJsonDB::listCollectionNames() {
 	auto ready = ensureReady();
 	if (!ready.ok()) {
 		setLastError(ready);
@@ -1463,17 +1536,15 @@ std::vector<std::string> ESPJsonDB::getAllCollectionName() {
 	return names;
 }
 
+std::vector<std::string> ESPJsonDB::getAllCollectionName() {
+	return listCollectionNames();
+}
+
 DbStatus ESPJsonDB::changeConfig(const ESPJsonDBConfig &cfg) {
 	auto ready = ensureReady();
 	if (!ready.ok()) {
 		return setLastError(ready);
 	}
-	if (!cfg.cacheEnabled) {
-		return setLastError(
-		    {DbStatusCode::InvalidArgument, "cacheEnabled=false is no longer supported"}
-		);
-	}
-	bool doColdSync = cfg.coldSync;
 	// Stop existing task if running and apply new config
 	{
 		FrLock lk(_mu);
@@ -1484,21 +1555,15 @@ DbStatus ESPJsonDB::changeConfig(const ESPJsonDBConfig &cfg) {
 		_nextUploadId = 1;
 		stopSyncTaskUnlocked();
 		_cfg = cfg;
-		_cfg.cacheEnabled = true;
 		rebindAllocatorAwareStateLocked(true);
-		for (auto &kv : _cols) {
-			if (kv.second)
-				kv.second->setCacheEnabled(_cfg.cacheEnabled);
-		}
+		rebuildDelayedCollectionStateFromConfigLocked();
 	}
 	auto fsStatus = ensureFsReady();
 	if (!fsStatus.ok())
 		return fsStatus;
-	if (doColdSync) {
-		auto preloadStatus = preloadCollectionsFromFs(false, DBSyncSource::Init);
-		if (!preloadStatus.ok()) {
-			return preloadStatus;
-		}
+	auto preloadStatus = preloadCollectionsFromFs(false, DBSyncSource::Init);
+	if (!preloadStatus.ok()) {
+		return preloadStatus;
 	}
 	{
 		FrLock lk(_mu);
@@ -1510,13 +1575,21 @@ DbStatus ESPJsonDB::changeConfig(const ESPJsonDBConfig &cfg) {
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
-JsonDocument ESPJsonDB::getSnapshot() {
+JsonDocument ESPJsonDB::getSnapshot(SnapshotMode mode) {
 	JsonDocument snap;
+	if (mode == SnapshotMode::InMemoryConsistent) {
+		auto syncStatus = syncNow();
+		if (!syncStatus.ok()) {
+			setLastError(syncStatus);
+			return snap;
+		}
+	}
 	if (!_fs) {
 		setLastError({DbStatusCode::IoError, "filesystem not ready"});
 		return snap;
 	}
 	auto colsObj = snap["collections"].to<JsonObject>();
+	RecordStore store(*_fs, _cfg.usePSRAMBuffers);
 
 	// Scan collections dirs
 	DirEntryVector colDirs{JsonDbAllocator<DirEntry>(_cfg.usePSRAMBuffers)};
@@ -1531,39 +1604,25 @@ JsonDocument ESPJsonDB::getSnapshot() {
 			continue;
 
 		// Iterate files in collection dir
-		DirEntryVector files{JsonDbAllocator<DirEntry>(_cfg.usePSRAMBuffers)};
-		listDirEntries(*_fs, full, files);
+		const auto ids = store.listIds(full);
 		JsonArray arr = colsObj[colName.c_str()].to<JsonArray>();
-		for (auto &fe : files) {
-			if (fe.second)
-				continue; // skip subdirectories
-			const std::string &fpath = fe.first;
-			// expect <id>.mp
-			auto dot = fpath.find_last_of('.');
-			if (dot == std::string::npos || fpath.substr(dot) != ".mp")
+		for (const auto &id : ids) {
+			auto rec = store.read(full, id.c_str());
+			if (!rec.status.ok() || !rec.value)
 				continue;
-			auto slash = fpath.find_last_of('/');
-			std::string fname = (slash == std::string::npos) ? fpath : fpath.substr(slash + 1);
-			std::string id = fname.substr(0, fname.size() - 3);
-
-			// Read and decode msgpack
-			DeserializationError derr;
 			JsonDocument tmp;
-			{
-				FrLock fs(g_fsMutex);
-				File f = _fs->open(fpath.c_str(), FILE_READ);
-				if (f) {
-					derr = deserializeMsgPack(tmp, f);
-					f.close();
-				} else {
-					derr = DeserializationError::Code::InvalidInput;
-				}
-			}
+			auto derr =
+			    deserializeMsgPack(tmp, rec.value->msgpack.data(), rec.value->msgpack.size());
 			if (derr)
-				continue; // skip unreadable
+				continue;
 			JsonObject obj = arr.add<JsonObject>();
 			obj.set(tmp.as<JsonObjectConst>());
-			obj["_id"] = id.c_str();
+			obj["_id"] = rec.value->meta.id.c_str();
+			auto meta = obj["_meta"].to<JsonObject>();
+			meta["createdAtMs"] = rec.value->meta.createdAtMs;
+			meta["updatedAtMs"] = rec.value->meta.updatedAtMs;
+			meta["revision"] = rec.value->meta.revision;
+			meta["flags"] = rec.value->meta.flags;
 		}
 	}
 	setLastError({DbStatusCode::Ok, ""});
@@ -1606,6 +1665,7 @@ DbStatus ESPJsonDB::restoreFromSnapshot(const JsonDocument &snapshot) {
 			fsEnsureDir(*_fs, dir);
 		}
 
+		RecordStore store(*_fs, _cfg.usePSRAMBuffers);
 		for (JsonObjectConst obj : arr) {
 			const char *id =
 			    obj["_id"].is<const char *>() ? obj["_id"].as<const char *>() : nullptr;
@@ -1619,36 +1679,33 @@ DbStatus ESPJsonDB::restoreFromSnapshot(const JsonDocument &snapshot) {
 			JsonDocument tmp;
 			tmp.to<JsonObject>().set(obj);
 			tmp.remove("_id");
+			tmp.remove("_meta");
 
-			// Serialize to MsgPack buffer
 			size_t sz = measureMsgPack(tmp);
-			JsonDbVector<uint8_t> bytes{JsonDbAllocator<uint8_t>(_cfg.usePSRAMBuffers)};
-			bytes.resize(sz);
-			size_t written = serializeMsgPack(tmp, bytes.data(), bytes.size());
+			DocumentRecord record(_cfg.usePSRAMBuffers);
+			record.meta.id = DocId(id);
+			record.msgpack.resize(sz);
+			size_t written = serializeMsgPack(tmp, record.msgpack.data(), record.msgpack.size());
 			if (written != sz)
 				return setLastError({DbStatusCode::IoError, "serialize msgpack failed"});
 
-			// Write file atomically
-			std::string finalPath = dir + "/" + std::string(id) + ".mp";
-			std::string tmpPath = finalPath + ".tmp";
-			{
-				FrLock fs(g_fsMutex);
-				File f = _fs->open(tmpPath.c_str(), FILE_WRITE);
-				if (!f)
-					return setLastError({DbStatusCode::IoError, "open for write failed"});
-				WriteBufferingStream bufferedFile(f, 256);
-				size_t w = bufferedFile.write(bytes.data(), bytes.size());
-				bufferedFile.flush();
-				f.close();
-				if (w != bytes.size()) {
-					_fs->remove(tmpPath.c_str());
-					return setLastError({DbStatusCode::IoError, "write failed"});
-				}
-				if (!_fs->rename(tmpPath.c_str(), finalPath.c_str())) {
-					_fs->remove(tmpPath.c_str());
-					return setLastError({DbStatusCode::IoError, "rename failed"});
-				}
+			JsonObjectConst meta = obj["_meta"].as<JsonObjectConst>();
+			if (!meta.isNull()) {
+				record.meta.createdAtMs = meta["createdAtMs"] | nowUtcMs();
+				record.meta.updatedAtMs = meta["updatedAtMs"] | record.meta.createdAtMs;
+				record.meta.revision = meta["revision"] | 1U;
+				record.meta.flags = meta["flags"] | static_cast<uint16_t>(0);
+			} else {
+				record.meta.createdAtMs = nowUtcMs();
+				record.meta.updatedAtMs = record.meta.createdAtMs;
+				record.meta.revision = 1;
+				record.meta.flags = 0;
 			}
+			record.meta.dirty = false;
+			record.meta.removed = false;
+			auto stWrite = store.write(dir, record);
+			if (!stWrite.ok())
+				return setLastError(stWrite);
 		}
 	}
 
@@ -1688,7 +1745,7 @@ void ESPJsonDB::refreshDiagFromFs() {
 					}
 					f.close();
 
-					// Count .mp files in collection dir
+					// Count persisted record files
 					std::string dirPath = _baseDir;
 					if (!dirPath.empty() && dirPath.back() != '/')
 						dirPath += '/';
@@ -1707,7 +1764,7 @@ void ESPJsonDB::refreshDiagFromFs() {
 						String fn = df.name();
 						df.close();
 						std::string n = fn.c_str();
-						if (n.size() >= 3 && n.substr(n.size() - 3) == ".mp")
+						if (n.size() >= 4 && n.substr(n.size() - 4) == ".jdb")
 							++cnt;
 					}
 					colDir.close();

@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "collection/collection.h"
+#include "files/file_store.h"
 #include "utils/dbTypes.h"
 #include "utils/fr_mutex.h"
 #include "utils/jsondb_allocator.h"
@@ -22,13 +23,16 @@
 
 class ESPJsonDB {
   public:
+	ESPJsonDB();
 	~ESPJsonDB();
 	DbStatus init(const char *baseDir = "/db", const ESPJsonDBConfig &cfg = {});
 	void deinit();
 	bool isInitialized() const {
 		return _initialized.load(std::memory_order_acquire);
 	}
+	DbStatus configureCollection(const std::string &name, const CollectionConfig &cfg);
 	DbStatus registerSchema(const std::string &name, const Schema &s);
+	DbStatus unregisterSchema(const std::string &name);
 	DbStatus unRegisterSchema(const std::string &name);
 	DbStatus dropCollection(const std::string &name);
 
@@ -36,6 +40,7 @@ class ESPJsonDB {
 	DbStatus dropAll();
 
 	// Returns collection names tracked in memory (preloaded + runtime-created)
+	std::vector<std::string> listCollectionNames();
 	std::vector<std::string> getAllCollectionName();
 
 	// Change sync configuration; restarts autosync task if needed
@@ -151,11 +156,19 @@ class ESPJsonDB {
 	}
 
 	// Diagnostics: number of collections, doc counts, and config
+	JsonDocument getDiagnostics();
 	JsonDocument getDiag();
 
 	// Backup/restore
-	JsonDocument getSnapshot();
+	JsonDocument getSnapshot(SnapshotMode mode = SnapshotMode::OnDiskOnly);
 	DbStatus restoreFromSnapshot(const JsonDocument &snapshot);
+
+	FileStore &files() {
+		return *_fileStore;
+	}
+	const FileStore &files() const {
+		return *_fileStore;
+	}
 
 	// Generic file-bytes helpers under <baseDir>/_files.
 	DbStatus writeFileStream(
@@ -216,6 +229,7 @@ class ESPJsonDB {
 	using CollectionMap = JsonDbMap<std::string, std::unique_ptr<Collection>>;
 	using SchemaMap = JsonDbMap<std::string, Schema>;
 	using StringBoolMap = JsonDbMap<std::string, bool>;
+	using CollectionConfigMap = JsonDbMap<std::string, CollectionConfig>;
 	using StringUint32Map = JsonDbMap<std::string, uint32_t>;
 	using StringVector = JsonDbVector<std::string>;
 	using UploadIdDeque = JsonDbDeque<uint32_t>;
@@ -227,6 +241,7 @@ class ESPJsonDB {
 	ESPJsonDBConfig _cfg;
 	CollectionMap _cols;
 	SchemaMap _schemas;
+	CollectionConfigMap _collectionConfigs;
 	StringVector _colsToDelete;
 	EventCallbackVector _eventCbs;
 	ErrorCallbackVector _errorCbs;
@@ -338,6 +353,7 @@ class ESPJsonDB {
 	JsonDbMap<uint32_t, std::shared_ptr<FileUploadJob>> _uploadJobs;
 	UploadIdDeque _terminalUploadOrder;
 	static constexpr size_t kMaxRetainedTerminalUploads = 64;
+	std::unique_ptr<FileStore> _fileStore;
 };
 
 template <typename Pred>
