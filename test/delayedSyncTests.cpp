@@ -62,7 +62,7 @@ void DbTester::delayedCollectionAccessBeforeAutosyncTickTest() {
 		return;
 	}
 
-	auto namesBefore = db.getAllCollectionName();
+	auto namesBefore = db.listCollectionNames();
 	if (hasCollectionName(namesBefore, "delayed_access")) {
 		ESP_LOGE(DB_TESTER_TAG, "delayed_access was preloaded but should have been deferred");
 		return;
@@ -84,7 +84,7 @@ void DbTester::delayedCollectionAccessBeforeAutosyncTickTest() {
 		return;
 	}
 
-	auto namesAfter = db.getAllCollectionName();
+	auto namesAfter = db.listCollectionNames();
 	if (!hasCollectionName(namesAfter, "delayed_access")) {
 		ESP_LOGE(DB_TESTER_TAG, "delayed_access not tracked after first access load");
 		return;
@@ -134,7 +134,7 @@ void DbTester::delayedCollectionSyncNowFallbackTest() {
 		return;
 	}
 
-	auto namesBefore = db.getAllCollectionName();
+	auto namesBefore = db.listCollectionNames();
 	if (hasCollectionName(namesBefore, "delayed_syncnow")) {
 		ESP_LOGE(DB_TESTER_TAG, "delayed_syncnow was preloaded but should wait for syncNow");
 		return;
@@ -146,7 +146,7 @@ void DbTester::delayedCollectionSyncNowFallbackTest() {
 		return;
 	}
 
-	auto namesAfter = db.getAllCollectionName();
+	auto namesAfter = db.listCollectionNames();
 	if (!hasCollectionName(namesAfter, "delayed_syncnow")) {
 		ESP_LOGE(DB_TESTER_TAG, "delayed_syncnow was not loaded by syncNow fallback path");
 		return;
@@ -261,7 +261,7 @@ void DbTester::delayedCollectionConfigNormalizationTest() {
 		return;
 	}
 
-	auto namesBefore = db.getAllCollectionName();
+	auto namesBefore = db.listCollectionNames();
 	if (hasCollectionName(namesBefore, "dup_collection")) {
 		ESP_LOGE(DB_TESTER_TAG, "dup_collection was preloaded but should have been deferred");
 		return;
@@ -277,7 +277,7 @@ void DbTester::delayedCollectionConfigNormalizationTest() {
 		return;
 	}
 
-	auto namesAfter = db.getAllCollectionName();
+	auto namesAfter = db.listCollectionNames();
 	if (!hasCollectionName(namesAfter, "dup_collection")) {
 		ESP_LOGE(DB_TESTER_TAG, "dup_collection did not load after syncNow in normalization test");
 		return;

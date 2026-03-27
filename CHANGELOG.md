@@ -5,6 +5,13 @@ All notable changes to this project are documented in this file.
 The format follows Keep a Changelog and the project adheres to Semantic Versioning.
 
 ## [Unreleased]
+### Changed
+- Moved mutable DB ownership behind an internal runtime and moved file upload / path handling behind a real `FileStore` subsystem.
+- `Collection` now uses an internal backing store, enforces `maxDecodedViews` / `maxRecordsInMemory`, and applies revision-based conflict checks in update paths.
+
+### Removed
+- Compatibility aliases `getDiag()`, `getAllCollectionName()`, and `unRegisterSchema()`.
+- Direct file helper methods from `ESPJsonDB`; use `db.files()` only.
 
 ## [2.0.0] - 2026-03-27
 ### Added
@@ -18,6 +25,7 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 ### Changed
 - Snapshot payloads now include `_meta` alongside `_id` and document fields.
 - `getDiagnostics()` replaces `getDiag()`, `listCollectionNames()` replaces `getAllCollectionName()`, and `unregisterSchema()` replaces `unRegisterSchema()`.
+- File operations now live only behind `db.files()`, with async state access renamed to `cancelUpload()` / `getUploadState()`.
 - Collection persistence now uses `.jdb` files instead of raw `.mp` MessagePack payload files.
 - Unique constraints are enforced through in-memory per-field indexes instead of full collection scans.
 - The top-level CMake build now uses C++17 to match the library metadata.

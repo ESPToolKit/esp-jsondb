@@ -136,7 +136,7 @@ void DbTester::dropAllRemovesBaseDirTest() {
 		return;
 	}
 
-	auto fileWrite = db.writeTextFile("drop_all_cleanup/payload.txt", "cleanup");
+	auto fileWrite = db.files().writeTextFile("drop_all_cleanup/payload.txt", "cleanup");
 	if (!fileWrite.ok()) {
 		ESP_LOGE(DB_TESTER_TAG, "dropAllRemovesBaseDirTest writeTextFile failed: %s", fileWrite.message);
 		return;

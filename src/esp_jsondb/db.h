@@ -21,19 +21,18 @@
 #include "utils/schema.h"
 #include <ArduinoJson.h>
 
+struct DbRuntime;
+
 class ESPJsonDB {
   public:
 	ESPJsonDB();
 	~ESPJsonDB();
 	DbStatus init(const char *baseDir = "/db", const ESPJsonDBConfig &cfg = {});
 	void deinit();
-	bool isInitialized() const {
-		return _initialized.load(std::memory_order_acquire);
-	}
+	bool isInitialized() const;
 	DbStatus configureCollection(const std::string &name, const CollectionConfig &cfg);
 	DbStatus registerSchema(const std::string &name, const Schema &s);
 	DbStatus unregisterSchema(const std::string &name);
-	DbStatus unRegisterSchema(const std::string &name);
 	DbStatus dropCollection(const std::string &name);
 
 	// Drop all collections and documents (clears base directory)
@@ -41,7 +40,6 @@ class ESPJsonDB {
 
 	// Returns collection names tracked in memory (preloaded + runtime-created)
 	std::vector<std::string> listCollectionNames();
-	std::vector<std::string> getAllCollectionName();
 
 	// Change sync configuration; restarts autosync task if needed
 	DbStatus changeConfig(const ESPJsonDBConfig &cfg);
@@ -146,74 +144,20 @@ class ESPJsonDB {
 	DbStatus syncNow();
 
 	// Retrieve last error or success status
-	DbStatus lastError() const {
-		return _lastError;
-	}
+	DbStatus lastError() const;
 
 	// Allow other components to update diagnostics/error state
-	DbStatus recordStatus(const DbStatus &st) {
-		return setLastError(st);
-	}
+	DbStatus recordStatus(const DbStatus &st);
 
 	// Diagnostics: number of collections, doc counts, and config
 	JsonDocument getDiagnostics();
-	JsonDocument getDiag();
 
 	// Backup/restore
 	JsonDocument getSnapshot(SnapshotMode mode = SnapshotMode::OnDiskOnly);
 	DbStatus restoreFromSnapshot(const JsonDocument &snapshot);
 
-	FileStore &files() {
-		return *_fileStore;
-	}
-	const FileStore &files() const {
-		return *_fileStore;
-	}
-
-	// Generic file-bytes helpers under <baseDir>/_files.
-	DbStatus writeFileStream(
-	    const std::string &relativePath,
-	    Stream &in,
-	    size_t bytesToWrite,
-	    const ESPJsonDBFileOptions &opts = {}
-	);
-	DbStatus writeFileStream(
-	    const std::string &relativePath,
-	    const DbFileUploadPullCb &pullCb,
-	    const ESPJsonDBFileOptions &opts = {}
-	);
-	DbStatus writeFileFromPath(
-	    const std::string &relativePath,
-	    const std::string &sourceFsPath,
-	    const ESPJsonDBFileOptions &opts = {}
-	);
-	DbStatus writeFile(
-	    const std::string &relativePath, const uint8_t *data, size_t size, bool overwrite = true
-	);
-	DbStatus
-	writeTextFile(const std::string &relativePath, const std::string &text, bool overwrite = true);
-
-	DbResult<size_t>
-	readFileStream(const std::string &relativePath, Stream &out, size_t chunkSize = 512);
-	DbResult<std::vector<uint8_t>> readFile(const std::string &relativePath);
-	DbResult<std::string> readTextFile(const std::string &relativePath);
-	DbResult<JsonDocument> getFileInfo(const std::string &relativePath);
-	DbResult<JsonDocument> listFiles(const std::string &relativePrefix = "", bool recursive = true);
-
-	DbStatus removeFile(const std::string &relativePath);
-	DbResult<bool> fileExists(const std::string &relativePath);
-	DbResult<size_t> fileSize(const std::string &relativePath);
-
-	// Non-blocking chunked file upload worker API.
-	// The pull callback runs on a background task and must fill up to `requested` bytes.
-	DbResult<uint32_t> writeFileStreamAsync(
-	    const std::string &relativePath,
-	    const DbFileUploadPullCb &pullCb,
-	    const ESPJsonDBFileOptions &opts = {},
-	    const DbFileUploadDoneCb &doneCb = {}
-	);
-	DbStatus cancelFileUpload(uint32_t uploadId);
-	DbResult<DbFileUploadState> getFileUploadState(uint32_t uploadId);
+	FileStore &files();
+	const FileStore &files() const;
 
 	// Emit an event to registered listeners
 	void emitEvent(DBEventType ev);
@@ -232,36 +176,15 @@ class ESPJsonDB {
 	using CollectionConfigMap = JsonDbMap<std::string, CollectionConfig>;
 	using StringUint32Map = JsonDbMap<std::string, uint32_t>;
 	using StringVector = JsonDbVector<std::string>;
-	using UploadIdDeque = JsonDbDeque<uint32_t>;
 	using EventCallbackVector = JsonDbVector<std::function<void(DBEventType)>>;
 	using ErrorCallbackVector = JsonDbVector<std::function<void(const DbStatus &)>>;
 	using SyncStatusCallbackVector = JsonDbVector<std::function<void(const DBSyncStatus &)>>;
-
-	std::string _baseDir;
-	ESPJsonDBConfig _cfg;
-	CollectionMap _cols;
-	SchemaMap _schemas;
-	CollectionConfigMap _collectionConfigs;
-	StringVector _colsToDelete;
-	EventCallbackVector _eventCbs;
-	ErrorCallbackVector _errorCbs;
-	SyncStatusCallbackVector _syncStatusCbs;
-	fs::FS *_fs = &LittleFS; // active filesystem
-	FrMutex _mu;             // guards _cols, _schemas, _colsToDelete
-
-	// Tracks most recent status for diagnostics/debugging
-	DbStatus _lastError{DbStatusCode::Ok, ""};
-	DBSyncStatus _lastSyncStatus{};
 
 	struct DiagCache {
 		StringUint32Map docsPerCollection;
 		uint32_t collections = 0;
 		uint32_t lastRefreshMs = 0; // millis when refreshed from FS
 	};
-
-	DiagCache _diagCache;          // cached diagnostics; read without touching FS
-	bool _diagCachePrimed = false; // true once runtime counters are initialized
-	std::atomic<bool> _initialized{false};
 
 	// sync task
 	static void syncTaskThunk(void *arg);
@@ -271,12 +194,7 @@ class ESPJsonDB {
 	void stopSyncTaskUnlocked();
 
 	// Update last error/status helper
-	DbStatus setLastError(const DbStatus &st) {
-		_lastError = st;
-		if (!st.ok())
-			emitError(st);
-		return st;
-	}
+	DbStatus setLastError(const DbStatus &st);
 	void emitSyncStatus(const DBSyncStatus &status);
 	void emitSyncStatus(
 	    DBSyncStage stage,
@@ -294,7 +212,6 @@ class ESPJsonDB {
 	DbStatus removeCollectionDir(const std::string &name);
 	bool isReservedName(const std::string &name) const;
 	std::string fileRootDir() const;
-	DbStatus normalizeFilePath(const std::string &rawRelativePath, std::string &normalized) const;
 	void rebuildDelayedCollectionStateFromConfigLocked();
 	DbStatus
 	maybeRunDelayedPreload(bool triggeredByPeriodic, bool emitStatus, DBSyncSource statusSource);
@@ -303,28 +220,6 @@ class ESPJsonDB {
 	    const std::string &name, bool markDelayedHandled, bool *insertedOut = nullptr
 	);
 	bool collectionDirExistsOnFs(const std::string &name) const;
-
-	// async file upload task
-	struct FileUploadJob {
-		uint32_t id = 0;
-		std::string relativePath;
-		std::string normalizedPath;
-		ESPJsonDBFileOptions opts{};
-		DbFileUploadPullCb pullCb{};
-		DbFileUploadDoneCb doneCb{};
-		DbFileUploadState state = DbFileUploadState::Queued;
-		DbStatus finalStatus{DbStatusCode::Ok, ""};
-		size_t bytesWritten = 0;
-		bool cancelRequested = false;
-		bool terminalTracked = false;
-	};
-	static void fileUploadTaskThunk(void *arg);
-	void fileUploadTaskLoop();
-	void startFileUploadTaskUnlocked();
-	void stopFileUploadTaskUnlocked(bool cancelPending);
-	DbStatus runFileUploadJob(const std::shared_ptr<FileUploadJob> &job, size_t &bytesWritten);
-	bool isUploadTerminal(DbFileUploadState state) const;
-	void trackTerminalUploadLocked(const std::shared_ptr<FileUploadJob> &job);
 	bool createTask(TaskFunction_t entry, const char *name, TaskHandle_t &outHandle);
 	void stopTask(
 	    TaskHandle_t &taskHandle, std::atomic<bool> &stopRequested, std::atomic<bool> &taskExited
@@ -334,26 +229,36 @@ class ESPJsonDB {
 	// Refresh diag cache from filesystem (expensive; used only for explicit full refresh paths)
 	void refreshDiagFromFs();
 	DbStatus preloadCollectionsFromFs(bool emitStatus, DBSyncSource statusSource);
+	friend struct DbRuntime;
+	friend struct FileStoreImpl;
 
-	// FreeRTOS task handles for autosync and async uploads
-	TaskHandle_t _syncTask = nullptr;
-	TaskHandle_t _fileUploadTask = nullptr;
-	std::atomic<bool> _syncStopRequested{false};
-	std::atomic<bool> _syncTaskExited{true};
-	std::atomic<bool> _syncKickRequested{false};
-	std::atomic<uint32_t> _syncRequestSeq{0};
-	std::atomic<uint32_t> _syncCompletedSeq{0};
-	StringBoolMap _pendingDelayedCollections;
-	bool _delayedPreloadPhaseCompleted = true;
-	bool _dropAllRequested = false;
-	std::atomic<bool> _fileUploadStopRequested{false};
-	std::atomic<bool> _fileUploadTaskExited{true};
-	uint32_t _nextUploadId = 1;
-	UploadIdDeque _uploadQueue;
-	JsonDbMap<uint32_t, std::shared_ptr<FileUploadJob>> _uploadJobs;
-	UploadIdDeque _terminalUploadOrder;
-	static constexpr size_t kMaxRetainedTerminalUploads = 64;
-	std::unique_ptr<FileStore> _fileStore;
+	std::unique_ptr<DbRuntime> _rt;
+	std::string &_baseDir;
+	ESPJsonDBConfig &_cfg;
+	CollectionMap &_cols;
+	SchemaMap &_schemas;
+	CollectionConfigMap &_collectionConfigs;
+	StringVector &_colsToDelete;
+	EventCallbackVector &_eventCbs;
+	ErrorCallbackVector &_errorCbs;
+	SyncStatusCallbackVector &_syncStatusCbs;
+	fs::FS *&_fs;
+	FrMutex &_mu;
+	DbStatus &_lastError;
+	DBSyncStatus &_lastSyncStatus;
+	DiagCache &_diagCache;
+	bool &_diagCachePrimed;
+	std::atomic<bool> &_initialized;
+	TaskHandle_t &_syncTask;
+	std::atomic<bool> &_syncStopRequested;
+	std::atomic<bool> &_syncTaskExited;
+	std::atomic<bool> &_syncKickRequested;
+	std::atomic<uint32_t> &_syncRequestSeq;
+	std::atomic<uint32_t> &_syncCompletedSeq;
+	StringBoolMap &_pendingDelayedCollections;
+	bool &_delayedPreloadPhaseCompleted;
+	bool &_dropAllRequested;
+	std::unique_ptr<FileStore> &_fileStore;
 };
 
 template <typename Pred>

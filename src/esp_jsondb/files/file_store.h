@@ -10,11 +10,15 @@
 
 #include "../utils/dbTypes.h"
 
-class ESPJsonDB;
+struct FileStoreImpl;
 
 class FileStore {
   public:
-	explicit FileStore(ESPJsonDB &db) : _db(&db) {
+	FileStore() = default;
+	explicit FileStore(FileStoreImpl *impl) : _impl(impl) {
+	}
+	void bind(FileStoreImpl *impl) {
+		_impl = impl;
 	}
 
 	DbStatus writeFileStream(
@@ -57,5 +61,5 @@ class FileStore {
 	DbResult<DbFileUploadState> getUploadState(uint32_t uploadId);
 
   private:
-	ESPJsonDB *_db = nullptr;
+	FileStoreImpl *_impl = nullptr;
 };

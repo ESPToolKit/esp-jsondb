@@ -10,19 +10,83 @@ DocView::DocView(
     FrMutex *mu,
     ESPJsonDB *db,
     std::function<DbStatus(const std::shared_ptr<DocumentRecord> &)> commitSink,
+    std::function<DbStatus()> decodeAcquire,
+    std::function<void()> decodeRelease,
+    std::function<DbStatus()> pinAcquire,
+    std::function<void()> pinRelease,
+    bool pinHeld,
     bool usePSRAMBuffers
 )
     : _rec(std::move(rec)), _schema(schema), _mu(mu), _db(db), _commitSink(std::move(commitSink)),
-      _usePSRAMBuffers(usePSRAMBuffers)
+      _decodeAcquire(std::move(decodeAcquire)), _decodeRelease(std::move(decodeRelease)),
+      _pinRelease(std::move(pinRelease)), _usePSRAMBuffers(usePSRAMBuffers), _pinHeld(pinHeld)
 #if ESP_JSONDB_HAS_JSONDOC_ALLOCATOR
       ,
       _docAllocator(usePSRAMBuffers)
 #endif
 {
+	if (_rec && !_pinHeld && pinAcquire) {
+		auto st = pinAcquire();
+		_pinHeld = st.ok();
+		recordStatus(st);
+	}
+}
+
+DocView::DocView(DocView &&other) noexcept
+    : _rec(std::move(other._rec)), _schema(other._schema), _doc(std::move(other._doc)),
+      _dirtyLocally(other._dirtyLocally), _mu(other._mu), _db(other._db),
+      _commitSink(std::move(other._commitSink)), _decodeAcquire(std::move(other._decodeAcquire)),
+      _decodeRelease(std::move(other._decodeRelease)), _pinRelease(std::move(other._pinRelease)),
+      _usePSRAMBuffers(other._usePSRAMBuffers), _decodeReserved(other._decodeReserved),
+      _pinHeld(other._pinHeld)
+#if ESP_JSONDB_HAS_JSONDOC_ALLOCATOR
+      ,
+      _docAllocator(other._usePSRAMBuffers)
+#endif
+{
+	other._decodeReserved = false;
+	other._pinHeld = false;
+}
+
+DocView &DocView::operator=(DocView &&other) noexcept {
+	if (this == &other)
+		return *this;
+	releaseResources();
+	_rec = std::move(other._rec);
+	_schema = other._schema;
+	_doc = std::move(other._doc);
+	_dirtyLocally = other._dirtyLocally;
+	_mu = other._mu;
+	_db = other._db;
+	_commitSink = std::move(other._commitSink);
+	_decodeAcquire = std::move(other._decodeAcquire);
+	_decodeRelease = std::move(other._decodeRelease);
+	_pinRelease = std::move(other._pinRelease);
+	_usePSRAMBuffers = other._usePSRAMBuffers;
+	_decodeReserved = other._decodeReserved;
+	_pinHeld = other._pinHeld;
+#if ESP_JSONDB_HAS_JSONDOC_ALLOCATOR
+	_docAllocator.setUsePSRAMBuffers(_usePSRAMBuffers);
+#endif
+	other._decodeReserved = false;
+	other._pinHeld = false;
+	return *this;
 }
 
 DocView::~DocView() {
-	// no auto-commit by default; discard decoded state
+	releaseResources();
+}
+
+void DocView::releaseResources() {
+	_doc.reset();
+	if (_decodeReserved && _decodeRelease) {
+		_decodeRelease();
+	}
+	if (_pinHeld && _pinRelease) {
+		_pinRelease();
+	}
+	_decodeReserved = false;
+	_pinHeld = false;
 }
 
 DbStatus DocView::decode() {
@@ -31,6 +95,12 @@ DbStatus DocView::decode() {
 		guard = std::make_unique<FrLock>(*_mu);
 	if (_doc)
 		return recordStatus({DbStatusCode::Ok, ""});
+	if (_decodeAcquire) {
+		auto st = _decodeAcquire();
+		if (!st.ok())
+			return recordStatus(st);
+		_decodeReserved = true;
+	}
 #if ESP_JSONDB_HAS_JSONDOC_ALLOCATOR
 	_docAllocator.setUsePSRAMBuffers(_usePSRAMBuffers);
 	_doc = std::make_unique<JsonDocument>(&_docAllocator);
@@ -50,6 +120,10 @@ DbStatus DocView::decode() {
 		err = deserializeMsgPack(*_doc, _rec->msgpack.data(), _rec->msgpack.size());
 		if (err) {
 			_doc.reset();
+			if (_decodeReserved && _decodeRelease) {
+				_decodeRelease();
+			}
+			_decodeReserved = false;
 			return recordStatus({DbStatusCode::Corrupted, "msgpack decode failed"});
 		}
 	}
@@ -210,7 +284,13 @@ DbStatus DocView::commit() {
 }
 
 void DocView::discard() {
-	_doc.reset();
+	if (_doc) {
+		_doc.reset();
+		if (_decodeReserved && _decodeRelease) {
+			_decodeRelease();
+		}
+		_decodeReserved = false;
+	}
 	_dirtyLocally = false;
 }
 
@@ -226,20 +306,28 @@ DocRef DocView::getRef(const char *field) const {
 DocView DocView::populate(const char *field, uint8_t maxDepth) const {
 	if (maxDepth == 0) {
 		recordStatus({DbStatusCode::InvalidArgument, "max depth reached"});
-		return DocView(nullptr, nullptr, nullptr, _db, nullptr, _usePSRAMBuffers);
+		return DocView(
+		    nullptr, nullptr, nullptr, _db, nullptr, nullptr, nullptr, nullptr, nullptr, false, _usePSRAMBuffers
+		);
 	}
 	auto ref = getRef(field);
 	if (!ref.valid()) {
 		recordStatus({DbStatusCode::InvalidArgument, "field not DocRef"});
-		return DocView(nullptr, nullptr, nullptr, _db, nullptr, _usePSRAMBuffers);
+		return DocView(
+		    nullptr, nullptr, nullptr, _db, nullptr, nullptr, nullptr, nullptr, nullptr, false, _usePSRAMBuffers
+		);
 	}
 	if (!_db) {
 		recordStatus({DbStatusCode::InvalidArgument, "database context unavailable"});
-		return DocView(nullptr, nullptr, nullptr, _db, nullptr, _usePSRAMBuffers);
+		return DocView(
+		    nullptr, nullptr, nullptr, _db, nullptr, nullptr, nullptr, nullptr, nullptr, false, _usePSRAMBuffers
+		);
 	}
 	auto fr = _db->findById(ref.collection, ref.id);
 	if (!fr.status.ok())
-		return DocView(nullptr, nullptr, nullptr, _db, nullptr, _usePSRAMBuffers);
+		return DocView(
+		    nullptr, nullptr, nullptr, _db, nullptr, nullptr, nullptr, nullptr, nullptr, false, _usePSRAMBuffers
+		);
 	if (maxDepth > 1) {
 		for (auto kv : fr.value.asObjectConst()) {
 			auto nested = docRefFromJson(kv.value());

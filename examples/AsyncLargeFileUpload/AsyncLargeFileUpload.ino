@@ -127,7 +127,7 @@ void setup() {
 	opts.chunkSize = kChunkSize;
 	opts.overwrite = true;
 
-	auto start = db.writeFileStreamAsync(
+	auto start = db.files().writeFileStreamAsync(
 	    "uploads/large_payload.bin",
 	    largeUploadPull,
 	    opts,
@@ -153,7 +153,7 @@ void loop() {
 	}
 
 	if (!gUploadDone) {
-		auto state = db.getFileUploadState(gUploadId);
+		auto state = db.files().getUploadState(gUploadId);
 		if (state.status.ok()) {
 			Serial.printf(
 			    "state=%u progress=%u/%u\n",
@@ -175,7 +175,7 @@ void loop() {
 			return;
 		}
 
-		auto sizeRes = db.fileSize("uploads/large_payload.bin");
+		auto sizeRes = db.files().fileSize("uploads/large_payload.bin");
 		if (!sizeRes.status.ok() || sizeRes.value != kPayloadSize) {
 			Serial.printf(
 			    "fileSize mismatch: %s size=%u\n",
@@ -186,7 +186,7 @@ void loop() {
 		}
 
 		HashingSink sink;
-		auto readRes = db.readFileStream("uploads/large_payload.bin", sink, kReadChunkSize);
+		auto readRes = db.files().readFileStream("uploads/large_payload.bin", sink, kReadChunkSize);
 		if (!readRes.status.ok()) {
 			Serial.printf("readFileStream failed: %s\n", readRes.status.message);
 			return;

@@ -1,6 +1,9 @@
 #include "db.h"
+#include "db_runtime.h"
+#include "files/file_store_impl.h"
 #include "utils/fs_utils.h"
 #include "utils/jsondb_allocator.h"
+#include "utils/time_utils.h"
 #include <StreamUtils.h>
 #include <algorithm>
 #include <cstring>
@@ -14,7 +17,51 @@ using DirEntryVector = JsonDbVector<DirEntry>;
 
 FrMutex g_fsMutex; // definition of global FS mutex
 
-ESPJsonDB::ESPJsonDB() : _fileStore(std::make_unique<FileStore>(*this)) {
+DbRuntime::~DbRuntime() = default;
+
+ESPJsonDB::ESPJsonDB()
+    : _rt(std::make_unique<DbRuntime>()), _baseDir(_rt->baseDir), _cfg(_rt->cfg), _cols(_rt->cols),
+      _schemas(_rt->schemas), _collectionConfigs(_rt->collectionConfigs),
+      _colsToDelete(_rt->colsToDelete), _eventCbs(_rt->eventCbs), _errorCbs(_rt->errorCbs),
+      _syncStatusCbs(_rt->syncStatusCbs), _fs(_rt->fs), _mu(_rt->mu),
+      _lastError(_rt->lastError), _lastSyncStatus(_rt->lastSyncStatus),
+      _diagCache(_rt->diagCache), _diagCachePrimed(_rt->diagCachePrimed),
+      _initialized(_rt->initialized), _syncTask(_rt->syncTask),
+      _syncStopRequested(_rt->syncStopRequested), _syncTaskExited(_rt->syncTaskExited),
+      _syncKickRequested(_rt->syncKickRequested), _syncRequestSeq(_rt->syncRequestSeq),
+      _syncCompletedSeq(_rt->syncCompletedSeq),
+      _pendingDelayedCollections(_rt->pendingDelayedCollections),
+      _delayedPreloadPhaseCompleted(_rt->delayedPreloadPhaseCompleted),
+      _dropAllRequested(_rt->dropAllRequested), _fileStore(_rt->fileStore) {
+	_rt->fileStoreImpl = std::make_unique<FileStoreImpl>(*this, *_rt);
+	_rt->fileStore = std::make_unique<FileStore>(_rt->fileStoreImpl.get());
+}
+
+bool ESPJsonDB::isInitialized() const {
+	return _initialized.load(std::memory_order_acquire);
+}
+
+DbStatus ESPJsonDB::lastError() const {
+	return _lastError;
+}
+
+DbStatus ESPJsonDB::recordStatus(const DbStatus &st) {
+	return setLastError(st);
+}
+
+FileStore &ESPJsonDB::files() {
+	return *_fileStore;
+}
+
+const FileStore &ESPJsonDB::files() const {
+	return *_fileStore;
+}
+
+DbStatus ESPJsonDB::setLastError(const DbStatus &st) {
+	_lastError = st;
+	if (!st.ok())
+		emitError(st);
+	return st;
 }
 
 DbStatus ESPJsonDB::ensureFsReady() {
@@ -55,9 +102,6 @@ void ESPJsonDB::rebindAllocatorAwareStateLocked(bool preserveData) {
 	auto oldErrorCbs = std::move(_errorCbs);
 	auto oldSyncStatusCbs = std::move(_syncStatusCbs);
 	auto oldPendingDelayed = std::move(_pendingDelayedCollections);
-	auto oldUploadQueue = std::move(_uploadQueue);
-	auto oldUploadJobs = std::move(_uploadJobs);
-	auto oldTerminalUploadOrder = std::move(_terminalUploadOrder);
 	auto oldDiagDocs = std::move(_diagCache.docsPerCollection);
 	const DBSyncStatus oldLastSyncStatus = _lastSyncStatus;
 
@@ -75,10 +119,6 @@ void ESPJsonDB::rebindAllocatorAwareStateLocked(bool preserveData) {
 	    JsonDbAllocator<std::function<void(const DBSyncStatus &)>>(usePSRAMBuffers)};
 	StringBoolMap newPendingDelayed{
 	    std::less<std::string>{}, StringBoolMap::allocator_type(usePSRAMBuffers)};
-	UploadIdDeque newUploadQueue{JsonDbAllocator<uint32_t>(usePSRAMBuffers)};
-	decltype(_uploadJobs) newUploadJobs{
-	    std::less<uint32_t>{}, decltype(_uploadJobs)::allocator_type(usePSRAMBuffers)};
-	UploadIdDeque newTerminalUploadOrder{JsonDbAllocator<uint32_t>(usePSRAMBuffers)};
 	StringUint32Map newDiagDocs{
 	    std::less<std::string>{}, StringUint32Map::allocator_type(usePSRAMBuffers)};
 
@@ -112,15 +152,6 @@ void ESPJsonDB::rebindAllocatorAwareStateLocked(bool preserveData) {
 		for (auto &kv : oldPendingDelayed) {
 			newPendingDelayed.emplace(kv.first, kv.second);
 		}
-		for (auto id : oldUploadQueue) {
-			newUploadQueue.push_back(id);
-		}
-		for (auto &kv : oldUploadJobs) {
-			newUploadJobs.emplace(kv.first, std::move(kv.second));
-		}
-		for (auto id : oldTerminalUploadOrder) {
-			newTerminalUploadOrder.push_back(id);
-		}
 		for (auto &kv : oldDiagDocs) {
 			newDiagDocs.emplace(kv.first, kv.second);
 		}
@@ -134,9 +165,6 @@ void ESPJsonDB::rebindAllocatorAwareStateLocked(bool preserveData) {
 	_errorCbs = std::move(newErrorCbs);
 	_syncStatusCbs = std::move(newSyncStatusCbs);
 	_pendingDelayedCollections = std::move(newPendingDelayed);
-	_uploadQueue = std::move(newUploadQueue);
-	_uploadJobs = std::move(newUploadJobs);
-	_terminalUploadOrder = std::move(newTerminalUploadOrder);
 	_diagCache.docsPerCollection = std::move(newDiagDocs);
 	if (preserveData) {
 		_lastSyncStatus = oldLastSyncStatus;
@@ -405,14 +433,15 @@ ESPJsonDB::~ESPJsonDB() {
 }
 
 void ESPJsonDB::deinit() {
-	if (!isInitialized() && _syncTask == nullptr && _fileUploadTask == nullptr) {
+	if (!isInitialized() && _syncTask == nullptr) {
 		return;
 	}
 	_initialized.store(false, std::memory_order_release);
 
 	{
 		FrLock lk(_mu);
-		stopFileUploadTaskUnlocked(true);
+		if (_rt->fileStoreImpl)
+			_rt->fileStoreImpl->stopTask(true);
 		stopSyncTaskUnlocked();
 
 		for (auto &kv : _cols) {
@@ -425,10 +454,6 @@ void ESPJsonDB::deinit() {
 		_eventCbs.clear();
 		_errorCbs.clear();
 		_syncStatusCbs.clear();
-		_uploadQueue.clear();
-		_uploadJobs.clear();
-		_terminalUploadOrder.clear();
-		_nextUploadId = 1;
 		_pendingDelayedCollections.clear();
 		_delayedPreloadPhaseCompleted = true;
 		_diagCache.docsPerCollection.clear();
@@ -444,8 +469,6 @@ void ESPJsonDB::deinit() {
 	_syncKickRequested.store(false, std::memory_order_release);
 	_syncRequestSeq.store(0, std::memory_order_release);
 	_syncCompletedSeq.store(0, std::memory_order_release);
-	_fileUploadStopRequested.store(false, std::memory_order_release);
-	_fileUploadTaskExited.store(true, std::memory_order_release);
 	_dropAllRequested = false;
 	_baseDir.clear();
 	_cfg = ESPJsonDBConfig{};
@@ -475,7 +498,6 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 	_syncKickRequested.store(false, std::memory_order_release);
 	_syncRequestSeq.store(0, std::memory_order_release);
 	_syncCompletedSeq.store(0, std::memory_order_release);
-	_fileUploadStopRequested.store(false, std::memory_order_release);
 	{
 		FrLock lk(_mu);
 		_lastSyncStatus = {
@@ -487,14 +509,13 @@ DbStatus ESPJsonDB::init(const char *baseDir, const ESPJsonDBConfig &cfg) {
 
 	{
 		FrLock lk(_mu);
-		stopFileUploadTaskUnlocked(true);
+		if (_rt->fileStoreImpl)
+			_rt->fileStoreImpl->stopTask(true);
 		rebindAllocatorAwareStateLocked(true);
 		_cols.clear();
 		_colsToDelete.clear();
-		_uploadQueue.clear();
-		_uploadJobs.clear();
-		_terminalUploadOrder.clear();
-		_nextUploadId = 1;
+		_rt->fileStoreImpl = std::make_unique<FileStoreImpl>(*this, *_rt);
+		_fileStore = std::make_unique<FileStore>(_rt->fileStoreImpl.get());
 		rebuildDelayedCollectionStateFromConfigLocked();
 		_dropAllRequested = false;
 		_diagCache.docsPerCollection.clear();
@@ -559,10 +580,6 @@ DbStatus ESPJsonDB::unregisterSchema(const std::string &name) {
 		it->second->setSchema(Schema{});
 	}
 	return setLastError({DbStatusCode::Ok, ""});
-}
-
-DbStatus ESPJsonDB::unRegisterSchema(const std::string &name) {
-	return unregisterSchema(name);
 }
 
 void ESPJsonDB::onEvent(const std::function<void(DBEventType)> &cb) {
@@ -691,7 +708,7 @@ DbResult<Collection *> ESPJsonDB::collection(const std::string &name) {
 		return res;
 	}
 	Schema sc{};
-	CollectionConfig collectionCfg{};
+	collectionCfg = {};
 	{
 		FrLock lk(_mu);
 		auto existing = _cols.find(name);
@@ -783,7 +800,8 @@ DbResult<DocView> ESPJsonDB::findById(const std::string &name, const std::string
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
 		// Return placeholder DocView; caller should check status before use
-		return {cr.status, DocView(nullptr, nullptr, nullptr, this)};
+		return {cr.status,
+		        DocView(nullptr, nullptr, nullptr, this, nullptr, nullptr, nullptr, nullptr, nullptr, false, _cfg.usePSRAMBuffers)};
 	}
 	return cr.value->findById(id);
 }
@@ -804,7 +822,8 @@ ESPJsonDB::findOne(const std::string &name, std::function<bool(const DocView &)>
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
 		// Return placeholder DocView; caller should check status before use
-		return {cr.status, DocView(nullptr, nullptr, nullptr, this)};
+		return {cr.status,
+		        DocView(nullptr, nullptr, nullptr, this, nullptr, nullptr, nullptr, nullptr, nullptr, false, _cfg.usePSRAMBuffers)};
 	}
 	return cr.value->findOne(std::move(pred));
 }
@@ -813,7 +832,8 @@ DbResult<DocView> ESPJsonDB::findOne(const std::string &name, const JsonDocument
 	auto cr = collection(name);
 	if (!cr.status.ok()) {
 		// Return placeholder DocView; caller should check status before use
-		return {cr.status, DocView(nullptr, nullptr, nullptr, this)};
+		return {cr.status,
+		        DocView(nullptr, nullptr, nullptr, this, nullptr, nullptr, nullptr, nullptr, nullptr, false, _cfg.usePSRAMBuffers)};
 	}
 	return cr.value->findOne(filter);
 }
@@ -1471,10 +1491,6 @@ JsonDocument ESPJsonDB::getDiagnostics() {
 	return doc;
 }
 
-JsonDocument ESPJsonDB::getDiag() {
-	return getDiagnostics();
-}
-
 DbStatus ESPJsonDB::dropAll() {
 	auto ready = ensureReady();
 	if (!ready.ok()) {
@@ -1482,19 +1498,17 @@ DbStatus ESPJsonDB::dropAll() {
 	}
 	{
 		FrLock lk(_mu);
-		stopFileUploadTaskUnlocked(true);
+		if (_rt->fileStoreImpl)
+			_rt->fileStoreImpl->stopTask(true);
 
-		// Clear in-memory state
 		for (auto &kv : _cols) {
 			if (kv.second)
 				kv.second->markAllRemoved();
 		}
 		_cols.clear();
 		_colsToDelete.clear();
-		_uploadQueue.clear();
-		_uploadJobs.clear();
-		_terminalUploadOrder.clear();
-		_nextUploadId = 1;
+		_rt->fileStoreImpl = std::make_unique<FileStoreImpl>(*this, *_rt);
+		_fileStore = std::make_unique<FileStore>(_rt->fileStoreImpl.get());
 		_pendingDelayedCollections.clear();
 		_delayedPreloadPhaseCompleted = true;
 		_diagCache.docsPerCollection.clear();
@@ -1536,10 +1550,6 @@ std::vector<std::string> ESPJsonDB::listCollectionNames() {
 	return names;
 }
 
-std::vector<std::string> ESPJsonDB::getAllCollectionName() {
-	return listCollectionNames();
-}
-
 DbStatus ESPJsonDB::changeConfig(const ESPJsonDBConfig &cfg) {
 	auto ready = ensureReady();
 	if (!ready.ok()) {
@@ -1548,14 +1558,13 @@ DbStatus ESPJsonDB::changeConfig(const ESPJsonDBConfig &cfg) {
 	// Stop existing task if running and apply new config
 	{
 		FrLock lk(_mu);
-		stopFileUploadTaskUnlocked(true);
-		_uploadQueue.clear();
-		_uploadJobs.clear();
-		_terminalUploadOrder.clear();
-		_nextUploadId = 1;
+		if (_rt->fileStoreImpl)
+			_rt->fileStoreImpl->stopTask(true);
 		stopSyncTaskUnlocked();
 		_cfg = cfg;
 		rebindAllocatorAwareStateLocked(true);
+		_rt->fileStoreImpl = std::make_unique<FileStoreImpl>(*this, *_rt);
+		_fileStore = std::make_unique<FileStore>(_rt->fileStoreImpl.get());
 		rebuildDelayedCollectionStateFromConfigLocked();
 	}
 	auto fsStatus = ensureFsReady();

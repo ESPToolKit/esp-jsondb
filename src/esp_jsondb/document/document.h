@@ -76,6 +76,8 @@ struct DocumentRecord {
 
 	DocumentMeta meta;
 	JsonDbVector<uint8_t> msgpack; // authoritative source
+	uint32_t pinCount = 0;
+	uint64_t lastAccessSeq = 0;
 	                               // Optional decoded cache; created on demand and freed when view
 	                               // destroyed Decoding/encoding uses ArduinoJson.
 };
@@ -91,15 +93,20 @@ class DocView {
 	    FrMutex *mu = nullptr,
 	    ESPJsonDB *db = nullptr,
 	    std::function<DbStatus(const std::shared_ptr<DocumentRecord> &)> commitSink = nullptr,
+	    std::function<DbStatus()> decodeAcquire = nullptr,
+	    std::function<void()> decodeRelease = nullptr,
+	    std::function<DbStatus()> pinAcquire = nullptr,
+	    std::function<void()> pinRelease = nullptr,
+	    bool pinHeld = false,
 	    bool usePSRAMBuffers = false
 	);
-	~DocView(); // optional auto-commit if enabled
+	~DocView();
 
 	// non-copyable, movable
 	DocView(const DocView &) = delete;
 	DocView &operator=(const DocView &) = delete;
-	DocView(DocView &&) noexcept = default;
-	DocView &operator=(DocView &&) noexcept = default;
+	DocView(DocView &&other) noexcept;
+	DocView &operator=(DocView &&other) noexcept;
 
 	// Read-only or mutable variant access (ArduinoJson API)
 	JsonVariant operator[](const char *key);
@@ -137,13 +144,19 @@ class DocView {
 	FrMutex *_mu = nullptr; // optional: used when called without external lock
 	ESPJsonDB *_db = nullptr;
 	std::function<DbStatus(const std::shared_ptr<DocumentRecord> &)> _commitSink;
+	std::function<DbStatus()> _decodeAcquire;
+	std::function<void()> _decodeRelease;
+	std::function<void()> _pinRelease;
 	bool _usePSRAMBuffers = false;
+	bool _decodeReserved = false;
+	bool _pinHeld = false;
 #if ESP_JSONDB_HAS_JSONDOC_ALLOCATOR
 	JsonDbDocAllocator _docAllocator;
 #endif
 	DbStatus decode();
 	DbStatus encode();
 	DbStatus recordStatus(const DbStatus &st) const;
+	void releaseResources();
 };
 
 template <typename T> T DocView::getOr(const char *field, T def) const {

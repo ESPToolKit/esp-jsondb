@@ -237,7 +237,7 @@ void DbTester::psramMemoryBenchmarkTest() {
 				doneCount.fetch_add(1);
 			};
 
-			auto asyncRes = db.writeFileStreamAsync(path, pullCb, opts, doneCb);
+			auto asyncRes = db.files().writeFileStreamAsync(path, pullCb, opts, doneCb);
 			if (!asyncRes.status.ok()) {
 				ESP_LOGE(DB_TESTER_TAG, "benchmark async upload start failed: %s", asyncRes.status.message);
 				return false;
@@ -260,7 +260,7 @@ void DbTester::psramMemoryBenchmarkTest() {
 		    uploadStartInternal > minInternalFree ? (uploadStartInternal - minInternalFree) : 0;
 
 		for (const auto &path : uploadPaths) {
-			(void)db.removeFile(path);
+			(void)db.files().removeFile(path);
 		}
 		(void)db.dropAll();
 		out.ok = true;

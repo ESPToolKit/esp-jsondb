@@ -72,7 +72,7 @@ void setup() {
 	opts.chunkSize = 128;
 	opts.overwrite = true;
 
-	auto start = db.writeFileStreamAsync("uploads/telemetry.bin", uploadPull, opts, onUploadDone);
+	auto start = db.files().writeFileStreamAsync("uploads/telemetry.bin", uploadPull, opts, onUploadDone);
 	if (!start.status.ok()) {
 		Serial.printf("writeFileStreamAsync failed: %s\n", start.status.message);
 		return;
@@ -91,7 +91,7 @@ void loop() {
 	}
 
 	if (!gUploadDone) {
-		auto state = db.getFileUploadState(gUploadId);
+		auto state = db.files().getUploadState(gUploadId);
 		if (state.status.ok()) {
 			Serial.printf("Upload state: %u\n", static_cast<unsigned>(state.value));
 		}
@@ -109,7 +109,7 @@ void loop() {
 			return;
 		}
 
-		auto file = db.readFile("uploads/telemetry.bin");
+		auto file = db.files().readFile("uploads/telemetry.bin");
 		if (!file.status.ok()) {
 			Serial.printf("readFile failed: %s\n", file.status.message);
 			return;
