@@ -18,12 +18,14 @@ void setup() {
 
 	Schema userSchema;
 	userSchema.fields = {
-	    {"email", FieldType::String, "a@b.c"},
-	    {"username", FieldType::String},
-	    {"role", FieldType::String, "user"},
-	    {"password", FieldType::String},
-	    {"age", FieldType::Int}
+	    SchemaField{"email", FieldType::String, std::string("a@b.c")},
+	    SchemaField{"username", FieldType::String},
+	    SchemaField{"role", FieldType::String, std::string("user")},
+	    SchemaField{"password", FieldType::String},
+	    SchemaField{"age", FieldType::Int32}
 	};
+	userSchema.fields[1].required = true;
+	userSchema.fields[3].required = true;
 	userSchema.validate = usersValidate;
 	db.registerSchema("users", userSchema);
 

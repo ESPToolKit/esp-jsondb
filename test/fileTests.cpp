@@ -18,24 +18,24 @@ void DbTester::fileStorageTest() {
 	const std::string textPath = "docs/sample.txt";
 	const std::string textPayload = "ESPJsonDB file storage test";
 
-	auto textWrite = db.writeTextFile(textPath, textPayload, true);
+	auto textWrite = db.files().writeTextFile(textPath, textPayload, true);
 	if (!textWrite.ok()) {
 		ESP_LOGE(DB_TESTER_TAG, "writeTextFile failed: %s", textWrite.message);
 		return;
 	}
 
-	auto exists = db.fileExists(textPath);
+	auto exists = db.files().fileExists(textPath);
 	if (!exists.status.ok() || !exists.value) {
 		ESP_LOGE(DB_TESTER_TAG, "fileExists failed for text payload");
 		return;
 	}
-	auto size = db.fileSize(textPath);
+	auto size = db.files().fileSize(textPath);
 	if (!size.status.ok() || size.value != textPayload.size()) {
 		ESP_LOGE(DB_TESTER_TAG, "fileSize failed for text payload");
 		return;
 	}
 
-	auto textRead = db.readTextFile(textPath);
+	auto textRead = db.files().readTextFile(textPath);
 	if (!textRead.status.ok() || textRead.value != textPayload) {
 		ESP_LOGE(DB_TESTER_TAG, "readTextFile failed or content mismatch");
 		return;
@@ -48,7 +48,7 @@ void DbTester::fileStorageTest() {
 	}
 
 	const std::string binPath = "bin/source.bin";
-	auto binWrite = db.writeFile(binPath, binaryPayload.data(), binaryPayload.size(), true);
+	auto binWrite = db.files().writeFile(binPath, binaryPayload.data(), binaryPayload.size(), true);
 	if (!binWrite.ok()) {
 		ESP_LOGE(DB_TESTER_TAG, "writeFile failed: %s", binWrite.message);
 		return;
@@ -63,20 +63,20 @@ void DbTester::fileStorageTest() {
 	ESPJsonDBFileOptions streamOpts;
 	streamOpts.overwrite = true;
 	streamOpts.chunkSize = 128;
-	auto streamWrite = db.writeFileStream("bin/copied.bin", src, src.size(), streamOpts);
+	auto streamWrite = db.files().writeFileStream("bin/copied.bin", src, src.size(), streamOpts);
 	src.close();
 	if (!streamWrite.ok()) {
 		ESP_LOGE(DB_TESTER_TAG, "writeFileStream failed: %s", streamWrite.message);
 		return;
 	}
 
-	auto copied = db.readFile("bin/copied.bin");
+	auto copied = db.files().readFile("bin/copied.bin");
 	if (!copied.status.ok() || copied.value != binaryPayload) {
 		ESP_LOGE(DB_TESTER_TAG, "readFile failed or binary mismatch");
 		return;
 	}
 
-	auto copiedFromPath = db.writeFileFromPath(
+	auto copiedFromPath = db.files().writeFileFromPath(
 	    "bin/copied_from_path.bin",
 	    "/test_db/_files/bin/source.bin",
 	    streamOpts
@@ -86,7 +86,7 @@ void DbTester::fileStorageTest() {
 		return;
 	}
 
-	auto copiedFromPathRead = db.readFile("bin/copied_from_path.bin");
+	auto copiedFromPathRead = db.files().readFile("bin/copied_from_path.bin");
 	if (!copiedFromPathRead.status.ok() || copiedFromPathRead.value != binaryPayload) {
 		ESP_LOGE(DB_TESTER_TAG, "writeFileFromPath readback mismatch");
 		return;
@@ -118,26 +118,26 @@ void DbTester::fileStorageTest() {
 		return {DbStatusCode::Ok, ""};
 	};
 
-	auto syncCbWrite = db.writeFileStream("bin/copied_from_callback.bin", pullCb, streamOpts);
+	auto syncCbWrite = db.files().writeFileStream("bin/copied_from_callback.bin", pullCb, streamOpts);
 	if (!syncCbWrite.ok()) {
 		ESP_LOGE(DB_TESTER_TAG, "sync callback writeFileStream failed: %s", syncCbWrite.message);
 		return;
 	}
 
-	auto copiedFromCallback = db.readFile("bin/copied_from_callback.bin");
+	auto copiedFromCallback = db.files().readFile("bin/copied_from_callback.bin");
 	if (!copiedFromCallback.status.ok() || copiedFromCallback.value != binaryPayload) {
 		ESP_LOGE(DB_TESTER_TAG, "sync callback stream readback mismatch");
 		return;
 	}
 
 	auto sourceNotFound =
-	    db.writeFileFromPath("bin/not_created.bin", "/test_db/_files/bin/missing.bin", streamOpts);
+	    db.files().writeFileFromPath("bin/not_created.bin", "/test_db/_files/bin/missing.bin", streamOpts);
 	if (sourceNotFound.ok() || sourceNotFound.code != DbStatusCode::NotFound) {
 		ESP_LOGE(DB_TESTER_TAG, "writeFileFromPath missing-source check failed");
 		return;
 	}
 
-	auto invalidProducer = db.writeFileStream(
+	auto invalidProducer = db.files().writeFileStream(
 	    "bin/invalid_callback.bin",
 	    [](size_t requested, uint8_t *, size_t &produced, bool &eof) -> DbStatus {
 		    produced = requested + 1;
@@ -156,23 +156,23 @@ void DbTester::fileStorageTest() {
 		ESP_LOGE(DB_TESTER_TAG, "Failed to open sink file for readFileStream");
 		return;
 	}
-	auto streamRead = db.readFileStream(textPath, sink, 96);
+	auto streamRead = db.files().readFileStream(textPath, sink, 96);
 	sink.close();
 	if (!streamRead.status.ok() || streamRead.value != textPayload.size()) {
 		ESP_LOGE(DB_TESTER_TAG, "readFileStream failed: %s", streamRead.status.message);
 		return;
 	}
 
-	auto removeText = db.removeFile(textPath);
+	auto removeText = db.files().removeFile(textPath);
 	if (!removeText.ok()) {
 		ESP_LOGE(DB_TESTER_TAG, "removeFile failed: %s", removeText.message);
 		return;
 	}
-	(void)db.removeFile("bin/source.bin");
-	(void)db.removeFile("bin/copied.bin");
-	(void)db.removeFile("bin/copied_from_path.bin");
-	(void)db.removeFile("bin/copied_from_callback.bin");
-	(void)db.removeFile("bin/invalid_callback.bin");
+	(void)db.files().removeFile("bin/source.bin");
+	(void)db.files().removeFile("bin/copied.bin");
+	(void)db.files().removeFile("bin/copied_from_path.bin");
+	(void)db.files().removeFile("bin/copied_from_callback.bin");
+	(void)db.files().removeFile("bin/invalid_callback.bin");
 
 	ESP_LOGI(DB_TESTER_TAG, "File storage test passed");
 }
@@ -184,9 +184,9 @@ void DbTester::fileMetadataDiscoveryTest() {
 		return;
 	}
 
-	auto topWrite = db.writeTextFile("top.txt", "root");
-	auto infoWrite = db.writeTextFile("docs/info.txt", "metadata");
-	auto nestedWrite = db.writeTextFile("docs/nested/child.txt", "nested");
+	auto topWrite = db.files().writeTextFile("top.txt", "root");
+	auto infoWrite = db.files().writeTextFile("docs/info.txt", "metadata");
+	auto nestedWrite = db.files().writeTextFile("docs/nested/child.txt", "nested");
 	if (!topWrite.ok() || !infoWrite.ok() || !nestedWrite.ok()) {
 		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest failed to seed files");
 		return;
@@ -206,7 +206,7 @@ void DbTester::fileMetadataDiscoveryTest() {
 		return;
 	}
 
-	auto fileInfo = db.getFileInfo("docs/info.txt");
+	auto fileInfo = db.files().getFileInfo("docs/info.txt");
 	if (!fileInfo.status.ok()) {
 		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest getFileInfo(file) failed: %s", fileInfo.status.message);
 		return;
@@ -220,7 +220,7 @@ void DbTester::fileMetadataDiscoveryTest() {
 		return;
 	}
 
-	auto dirInfo = db.getFileInfo("docs");
+	auto dirInfo = db.files().getFileInfo("docs");
 	if (!dirInfo.status.ok()) {
 		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest getFileInfo(dir) failed: %s", dirInfo.status.message);
 		return;
@@ -234,7 +234,7 @@ void DbTester::fileMetadataDiscoveryTest() {
 		return;
 	}
 
-	auto topLevel = db.listFiles("", false);
+	auto topLevel = db.files().listFiles("", false);
 	if (!topLevel.status.ok()) {
 		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest top-level listFiles failed: %s", topLevel.status.message);
 		return;
@@ -250,7 +250,7 @@ void DbTester::fileMetadataDiscoveryTest() {
 		return;
 	}
 
-	auto docsRecursive = db.listFiles("docs", true);
+	auto docsRecursive = db.files().listFiles("docs", true);
 	if (!docsRecursive.status.ok()) {
 		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest recursive listFiles failed: %s", docsRecursive.status.message);
 		return;
@@ -270,33 +270,33 @@ void DbTester::fileMetadataDiscoveryTest() {
 		}
 	}
 
-	auto missingInfo = db.getFileInfo("missing.bin");
+	auto missingInfo = db.files().getFileInfo("missing.bin");
 	if (missingInfo.status.code != DbStatusCode::NotFound) {
 		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest expected NotFound for missing file info");
 		return;
 	}
 
-	auto invalidInfo = db.getFileInfo("../escape");
+	auto invalidInfo = db.files().getFileInfo("../escape");
 	if (invalidInfo.status.code != DbStatusCode::InvalidArgument) {
 		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest expected InvalidArgument for invalid file info path");
 		return;
 	}
 
-	auto invalidList = db.listFiles("../escape", true);
+	auto invalidList = db.files().listFiles("../escape", true);
 	if (invalidList.status.code != DbStatusCode::InvalidArgument) {
 		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest expected InvalidArgument for invalid listFiles path");
 		return;
 	}
 
-	auto missingList = db.listFiles("missing_prefix", true);
+	auto missingList = db.files().listFiles("missing_prefix", true);
 	if (missingList.status.code != DbStatusCode::NotFound) {
 		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest expected NotFound for missing prefix");
 		return;
 	}
 
-	(void)db.removeFile("top.txt");
-	(void)db.removeFile("docs/info.txt");
-	(void)db.removeFile("docs/nested/child.txt");
+	(void)db.files().removeFile("top.txt");
+	(void)db.files().removeFile("docs/info.txt");
+	(void)db.files().removeFile("docs/nested/child.txt");
 	ESP_LOGI(DB_TESTER_TAG, "File metadata discovery test passed");
 }
 
@@ -348,7 +348,7 @@ void DbTester::asyncFileUploadTest() {
 	ESPJsonDBFileOptions opts;
 	opts.overwrite = true;
 	opts.chunkSize = 96;
-	auto asyncRes = db.writeFileStreamAsync("async/payload.bin", pullCb, opts, doneCb);
+	auto asyncRes = db.files().writeFileStreamAsync("async/payload.bin", pullCb, opts, doneCb);
 	if (!asyncRes.status.ok()) {
 		ESP_LOGE(DB_TESTER_TAG, "writeFileStreamAsync failed: %s", asyncRes.status.message);
 		return;
@@ -361,7 +361,7 @@ void DbTester::asyncFileUploadTest() {
 	}
 	if (!done) {
 		ESP_LOGE(DB_TESTER_TAG, "Async upload timed out");
-		(void)db.cancelFileUpload(uploadId);
+		(void)db.files().cancelUpload(uploadId);
 		return;
 	}
 	if (!doneOk || doneBytes != payload.size()) {
@@ -369,19 +369,19 @@ void DbTester::asyncFileUploadTest() {
 		return;
 	}
 
-	auto stateRes = db.getFileUploadState(uploadId);
+	auto stateRes = db.files().getUploadState(uploadId);
 	if (!stateRes.status.ok() || stateRes.value != DbFileUploadState::Completed) {
 		ESP_LOGE(DB_TESTER_TAG, "Async upload state mismatch");
 		return;
 	}
 
-	auto readBack = db.readFile("async/payload.bin");
+	auto readBack = db.files().readFile("async/payload.bin");
 	if (!readBack.status.ok() || readBack.value != payload) {
 		ESP_LOGE(DB_TESTER_TAG, "Async upload payload mismatch");
 		return;
 	}
 
-	(void)db.removeFile("async/payload.bin");
+	(void)db.files().removeFile("async/payload.bin");
 	ESP_LOGI(DB_TESTER_TAG, "Async file upload test passed");
 }
 
@@ -436,7 +436,7 @@ void DbTester::asyncFileUploadRetentionBoundTest() {
 		    };
 
 		const std::string path = "async/retention_" + std::to_string(i) + ".bin";
-		auto asyncRes = db.writeFileStreamAsync(path, pullCb, opts, doneCb);
+		auto asyncRes = db.files().writeFileStreamAsync(path, pullCb, opts, doneCb);
 		if (!asyncRes.status.ok()) {
 			ESP_LOGE(
 			    DB_TESTER_TAG,
@@ -461,7 +461,7 @@ void DbTester::asyncFileUploadRetentionBoundTest() {
 			return;
 		}
 
-		auto latestState = db.getFileUploadState(asyncRes.value);
+		auto latestState = db.files().getUploadState(asyncRes.value);
 		if (!latestState.status.ok() || latestState.value != DbFileUploadState::Completed) {
 			ESP_LOGE(
 			    DB_TESTER_TAG,
@@ -471,16 +471,16 @@ void DbTester::asyncFileUploadRetentionBoundTest() {
 			return;
 		}
 
-		(void)db.removeFile(path);
+		(void)db.files().removeFile(path);
 	}
 
-	auto oldestState = db.getFileUploadState(uploadIds.front());
+	auto oldestState = db.files().getUploadState(uploadIds.front());
 	if (oldestState.status.code != DbStatusCode::NotFound) {
 		ESP_LOGE(DB_TESTER_TAG, "Retention test expected oldest upload state to expire");
 		return;
 	}
 
-	auto newestState = db.getFileUploadState(uploadIds.back());
+	auto newestState = db.files().getUploadState(uploadIds.back());
 	if (!newestState.status.ok() || newestState.value != DbFileUploadState::Completed) {
 		ESP_LOGE(DB_TESTER_TAG, "Retention test expected newest upload state to be retained");
 		return;
@@ -549,7 +549,7 @@ void DbTester::asyncFileUploadQueueOrderTest() {
 			}
 		};
 
-		auto asyncRes = db.writeFileStreamAsync(path, pullCb, opts, doneCb);
+		auto asyncRes = db.files().writeFileStreamAsync(path, pullCb, opts, doneCb);
 		if (!asyncRes.status.ok()) {
 			ESP_LOGE(DB_TESTER_TAG, "Queue order test upload start failed: %s", asyncRes.status.message);
 			return;
@@ -571,7 +571,7 @@ void DbTester::asyncFileUploadQueueOrderTest() {
 			ESP_LOGE(DB_TESTER_TAG, "Queue order test completion order mismatch");
 			return;
 		}
-		auto state = db.getFileUploadState(uploadIds[i]);
+		auto state = db.files().getUploadState(uploadIds[i]);
 		if (!state.status.ok() || state.value != DbFileUploadState::Completed) {
 			ESP_LOGE(DB_TESTER_TAG, "Queue order test upload state mismatch");
 			return;
@@ -579,7 +579,7 @@ void DbTester::asyncFileUploadQueueOrderTest() {
 	}
 
 	for (const auto &path : uploadPaths) {
-		(void)db.removeFile(path);
+		(void)db.files().removeFile(path);
 	}
 
 	ESP_LOGI(DB_TESTER_TAG, "Async upload queue order test passed");

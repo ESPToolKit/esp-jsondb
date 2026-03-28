@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -18,9 +19,25 @@ enum class DbStatusCode : uint8_t {
 	InvalidArgument,
 	ValidationFailed,
 	IoError,
-	Corrupted,
+	CorruptionDetected,
 	Busy,
-	Unknown
+	NotInitialized,
+	Conflict,
+	Timeout,
+	Unsupported,
+	SchemaMismatch,
+	Unknown,
+	Corrupted = CorruptionDetected
+};
+
+enum class SnapshotMode : uint8_t { InMemoryConsistent = 0, OnDiskOnly };
+
+enum class CollectionLoadPolicy : uint8_t { Eager = 0, Lazy, Delayed };
+
+struct CollectionConfig {
+	CollectionLoadPolicy loadPolicy = CollectionLoadPolicy::Eager;
+	size_t maxDecodedViews = 0;
+	size_t maxRecordsInMemory = 0;
 };
 
 struct ESPJsonDBConfig {
@@ -29,15 +46,13 @@ struct ESPJsonDBConfig {
 	UBaseType_t priority = 2;
 	BaseType_t coreId = tskNO_AFFINITY;
 	bool autosync = true;
-	bool coldSync = false;
-	bool cacheEnabled = true; // must remain true; false is rejected at runtime
-	std::vector<std::string> delayedCollectionSyncArray;
 	fs::FS *fs = nullptr;     // optional external filesystem handle
 	bool initFileSystem = true;
 	bool formatOnFail = true;
 	uint8_t maxOpenFiles = 10;
 	const char *partitionLabel = "spiffs";
 	bool usePSRAMBuffers = false; // Prefer PSRAM for internal byte buffers when available
+	CollectionLoadPolicy defaultLoadPolicy = CollectionLoadPolicy::Eager;
 };
 
 struct ESPJsonDBFileOptions {
@@ -126,8 +141,13 @@ static constexpr const char *kDbStatusCodeDescriptions[] = {
     "Invalid argument",
     "Validation failed",
     "I/O error",
-    "Corrupted",
+    "Corruption detected",
     "Busy",
+    "Not initialized",
+    "Conflict",
+    "Timeout",
+    "Unsupported",
+    "Schema mismatch",
     "Unknown",
 };
 

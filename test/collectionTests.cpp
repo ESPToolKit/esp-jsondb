@@ -136,7 +136,7 @@ void DbTester::dropAllRemovesBaseDirTest() {
 		return;
 	}
 
-	auto fileWrite = db.writeTextFile("drop_all_cleanup/payload.txt", "cleanup");
+	auto fileWrite = db.files().writeTextFile("drop_all_cleanup/payload.txt", "cleanup");
 	if (!fileWrite.ok()) {
 		ESP_LOGE(DB_TESTER_TAG, "dropAllRemovesBaseDirTest writeTextFile failed: %s", fileWrite.message);
 		return;
@@ -170,4 +170,112 @@ void DbTester::dropAllRemovesBaseDirTest() {
 	}
 
 	ESP_LOGI(DB_TESTER_TAG, "dropAll baseDir cleanup test passed");
+}
+
+void DbTester::collectionBudgetEnforcementTest() {
+	ESPJsonDB budgetDb;
+	ESPJsonDBConfig cfg;
+	cfg.autosync = false;
+
+	auto initStatus = budgetDb.init("/test_budget_db", cfg);
+	if (!initStatus.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "collectionBudgetEnforcementTest init failed: %s", initStatus.message);
+		return;
+	}
+
+	(void)budgetDb.dropAll();
+	const std::string collection = "budget_docs";
+
+	JsonDocument first;
+	first["index"] = 1;
+	JsonDocument second;
+	second["index"] = 2;
+
+	auto firstCreate = budgetDb.create(collection, first.as<JsonObjectConst>());
+	auto secondCreate = budgetDb.create(collection, second.as<JsonObjectConst>());
+	if (!firstCreate.status.ok() || !secondCreate.status.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "collectionBudgetEnforcementTest seed create failed");
+		budgetDb.deinit();
+		return;
+	}
+
+	auto syncStatus = budgetDb.syncNow();
+	if (!syncStatus.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "collectionBudgetEnforcementTest sync failed: %s", syncStatus.message);
+		budgetDb.deinit();
+		return;
+	}
+	budgetDb.deinit();
+
+	initStatus = budgetDb.init("/test_budget_db", cfg);
+	if (!initStatus.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "collectionBudgetEnforcementTest re-init failed: %s", initStatus.message);
+		return;
+	}
+
+	auto residentCfgStatus = budgetDb.configureCollection(
+	    collection, CollectionConfig{CollectionLoadPolicy::Lazy, 0, 1});
+	if (!residentCfgStatus.ok()) {
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "collectionBudgetEnforcementTest resident configure failed: %s",
+		    residentCfgStatus.message
+		);
+		budgetDb.deinit();
+		return;
+	}
+
+	auto firstView = budgetDb.findById(collection, firstCreate.value);
+	if (!firstView.status.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "collectionBudgetEnforcementTest first lazy load failed: %s", firstView.status.message);
+		budgetDb.deinit();
+		return;
+	}
+	auto secondView = budgetDb.findById(collection, secondCreate.value);
+	if (secondView.status.code != DbStatusCode::Busy) {
+		ESP_LOGE(DB_TESTER_TAG, "collectionBudgetEnforcementTest expected Busy for resident budget");
+		budgetDb.deinit();
+		return;
+	}
+
+	budgetDb.deinit();
+	initStatus = budgetDb.init("/test_budget_db", cfg);
+	if (!initStatus.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "collectionBudgetEnforcementTest third init failed: %s", initStatus.message);
+		return;
+	}
+
+	auto decodeCfgStatus = budgetDb.configureCollection(
+	    collection, CollectionConfig{CollectionLoadPolicy::Eager, 1, 0});
+	if (!decodeCfgStatus.ok()) {
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "collectionBudgetEnforcementTest decode configure failed: %s",
+		    decodeCfgStatus.message
+		);
+		budgetDb.deinit();
+		return;
+	}
+
+	auto decodedFirst = budgetDb.findById(collection, firstCreate.value);
+	auto decodedSecond = budgetDb.findById(collection, secondCreate.value);
+	if (!decodedFirst.status.ok() || !decodedSecond.status.ok()) {
+		ESP_LOGE(DB_TESTER_TAG, "collectionBudgetEnforcementTest eager find failed");
+		budgetDb.deinit();
+		return;
+	}
+	if (decodedFirst.value.asObject().isNull()) {
+		ESP_LOGE(DB_TESTER_TAG, "collectionBudgetEnforcementTest first decode unexpectedly failed");
+		budgetDb.deinit();
+		return;
+	}
+	if (!decodedSecond.value.asObject().isNull() ||
+	    budgetDb.lastError().code != DbStatusCode::Busy) {
+		ESP_LOGE(DB_TESTER_TAG, "collectionBudgetEnforcementTest expected Busy for decode budget");
+		budgetDb.deinit();
+		return;
+	}
+
+	budgetDb.deinit();
+	ESP_LOGI(DB_TESTER_TAG, "Collection budget enforcement test passed");
 }

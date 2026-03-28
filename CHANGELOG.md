@@ -5,6 +5,40 @@ All notable changes to this project are documented in this file.
 The format follows Keep a Changelog and the project adheres to Semantic Versioning.
 
 ## [Unreleased]
+### Changed
+- Moved mutable DB ownership behind an internal runtime and moved file upload / path handling behind a real `FileStore` subsystem.
+- `Collection` now uses an internal backing store, enforces `maxDecodedViews` / `maxRecordsInMemory`, and applies revision-based conflict checks in update paths.
+- `ESPJsonDB` and `Collection` headers are now thin façades over internal runtime / store state instead of exposing runtime-owned reference members.
+- `.jdb` writes now use a single authoritative prefix `flags` field; decode still accepts the interim duplicated-`flags` v2 envelope.
+
+### Removed
+- Compatibility aliases `getDiag()`, `getAllCollectionName()`, and `unRegisterSchema()`.
+- Direct file helper methods from `ESPJsonDB`; use `db.files()` only.
+
+## [2.0.0] - 2026-03-27
+### Added
+- Durable `.jdb` record format with persisted `_id`, `createdAtMs`, `updatedAtMs`, `revision`, and `flags`.
+- `SnapshotMode::{OnDiskOnly, InMemoryConsistent}` for explicit snapshot semantics.
+- `CollectionLoadPolicy::{Eager, Lazy, Delayed}` and `configureCollection(...)`.
+- First-class schema `required` fields and typed defaults via `JsonDefaultValue`.
+- `FileStore` facade exposed through `db.files()`.
+- New status codes including `NotInitialized`, `Conflict`, `Timeout`, `Unsupported`, `SchemaMismatch`, and `CorruptionDetected`.
+
+### Changed
+- Snapshot payloads now include `_meta` alongside `_id` and document fields.
+- `getDiagnostics()` replaces `getDiag()`, `listCollectionNames()` replaces `getAllCollectionName()`, and `unregisterSchema()` replaces `unRegisterSchema()`.
+- File operations now live only behind `db.files()`, with async state access renamed to `cancelUpload()` / `getUploadState()`.
+- Collection persistence now uses `.jdb` files instead of raw `.mp` MessagePack payload files.
+- Unique constraints are enforced through in-memory per-field indexes instead of full collection scans.
+- The top-level CMake build now uses C++17 to match the library metadata.
+
+### Removed
+- `ESPJsonDBConfig::cacheEnabled`
+- `ESPJsonDBConfig::coldSync`
+- `ESPJsonDBConfig::delayedCollectionSyncArray`
+- Automatic on-disk compatibility with legacy v1 `.mp` record files.
+
+## [1.1.1] - 2026-03-13
 ### Added
 - `ESPJsonDBConfig::usePSRAMBuffers` to prefer PSRAM for ESPJsonDB-owned byte buffers when available (with automatic heap fallback).
 - `ESPJsonDBConfig::delayedCollectionSyncArray` to defer selected collection preloads at boot and load them later.
@@ -103,7 +137,9 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 - Event callbacks, diagnostics reporting, and automatic `createdAt` / `updatedAt` timestamps on documents.
 - Example sketches covering quick start, collections, bulk operations, schema validation, and references.
 
-[Unreleased]: https://github.com/ESPToolKit/esp-jsondb/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/ESPToolKit/esp-jsondb/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/ESPToolKit/esp-jsondb/releases/tag/v2.0.0
+[1.1.1]: https://github.com/ESPToolKit/esp-jsondb/releases/tag/v1.1.1
 [1.1.0]: https://github.com/ESPToolKit/esp-jsondb/releases/tag/v1.1.0
 [1.0.5]: https://github.com/ESPToolKit/esp-jsondb/releases/tag/v1.0.5
 [1.0.4]: https://github.com/ESPToolKit/esp-jsondb/releases/tag/v1.0.4

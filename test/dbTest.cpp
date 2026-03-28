@@ -34,6 +34,9 @@ void DbTester::run() {
 	refPopulateTest();
 	idLifecycleRoundTripTest();
 	snapshotRestoreIdLifecycleTest();
+	docCodecCompatibilityTest();
+	optimisticConflictTest();
+	collectionBudgetEnforcementTest();
 	documentFileDeletionOnSyncTest();
 	fileStorageTest();
 	fileMetadataDiscoveryTest();
@@ -86,7 +89,7 @@ void DbTester::dbErrorHandler(const DbStatus &st) {
 }
 
 void DbTester::printDBDiag() {
-	JsonDocument diagDoc = db.getDiag();
+	JsonDocument diagDoc = db.getDiagnostics();
 	ESP_LOGI(DB_TESTER_TAG, "DB Diagnostics");
 	serializeJsonPretty(diagDoc, Serial);
 	ESP_LOGI(DB_TESTER_TAG, "");

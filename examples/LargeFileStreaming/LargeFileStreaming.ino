@@ -108,13 +108,13 @@ void setup() {
 	opts.chunkSize = kWriteChunkSize;
 
 	const char *path = "firmware/large_payload.bin";
-	st = db.writeFileStream(path, pullCb, opts);
+	st = db.files().writeFileStream(path, pullCb, opts);
 	if (!st.ok()) {
 		Serial.printf("writeFileStream failed: %s\n", st.message);
 		return;
 	}
 
-	auto sizeRes = db.fileSize(path);
+	auto sizeRes = db.files().fileSize(path);
 	if (!sizeRes.status.ok() || sizeRes.value != kPayloadSize) {
 		Serial.printf(
 		    "fileSize mismatch: status=%s size=%u\n",
@@ -125,7 +125,7 @@ void setup() {
 	}
 
 	HashingSink sink;
-	auto readRes = db.readFileStream(path, sink, kReadChunkSize);
+	auto readRes = db.files().readFileStream(path, sink, kReadChunkSize);
 	if (!readRes.status.ok()) {
 		Serial.printf("readFileStream failed: %s\n", readRes.status.message);
 		return;
