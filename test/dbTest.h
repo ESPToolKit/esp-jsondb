@@ -24,6 +24,8 @@ class DbTester {
 	void refPopulateTest();
 	void idLifecycleRoundTripTest();
 	void snapshotRestoreIdLifecycleTest();
+	void snapshotStreamRoundTripTest();
+	void snapshotStreamInvalidJsonTest();
 	void docCodecCompatibilityTest();
 	void optimisticConflictTest();
 	void collectionBudgetEnforcementTest();
@@ -33,6 +35,12 @@ class DbTester {
 	void asyncFileUploadTest();
 	void asyncFileUploadRetentionBoundTest();
 	void asyncFileUploadQueueOrderTest();
+#if __has_include(<ESPCompressor.h>)
+	void compressedSnapshotRoundTripTest();
+	void compressedSnapshotFileRoundTripTest();
+	void compressedSnapshotDbFilesRoundTripTest();
+	void compressedSnapshotCorruptionTest();
+#endif
 	// Collection tests
 	void simpleCollectionCreate();
 	void simpleCollectionRemove();

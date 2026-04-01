@@ -21,6 +21,10 @@
 #include "utils/schema.h"
 #include <ArduinoJson.h>
 
+#if __has_include(<ESPCompressor.h>)
+#include <ESPCompressor.h>
+#endif
+
 struct DbRuntime;
 
 class ESPJsonDB {
@@ -153,8 +157,26 @@ class ESPJsonDB {
 	JsonDocument getDiagnostics();
 
 	// Backup/restore
+	DbStatus writeSnapshot(Stream &out, SnapshotMode mode = SnapshotMode::OnDiskOnly);
 	JsonDocument getSnapshot(SnapshotMode mode = SnapshotMode::OnDiskOnly);
+	DbStatus restoreFromSnapshot(Stream &in);
 	DbStatus restoreFromSnapshot(const JsonDocument &snapshot);
+
+#if __has_include(<ESPCompressor.h>)
+	DbStatus writeCompressedSnapshot(
+	    ESPCompressor &compressor,
+	    CompressionSink &sink,
+	    SnapshotMode mode = SnapshotMode::OnDiskOnly,
+	    ProgressCallback onProgress = nullptr,
+	    const CompressionJobOptions &options = {}
+	);
+	DbStatus restoreCompressedSnapshot(
+	    ESPCompressor &compressor,
+	    CompressionSource &source,
+	    ProgressCallback onProgress = nullptr,
+	    const CompressionJobOptions &options = {}
+	);
+#endif
 
 	FileStore &files();
 	const FileStore &files() const;

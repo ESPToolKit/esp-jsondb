@@ -1706,6 +1706,146 @@ DbStatus ESPJsonDB::changeConfig(const ESPJsonDBConfig &cfg) {
 	return setLastError({DbStatusCode::Ok, ""});
 }
 
+namespace {
+DbStatus writeSnapshotBytes(Print &out, const char *data, size_t size) {
+	if (!data || size == 0) {
+		return {DbStatusCode::Ok, ""};
+	}
+	size_t written = out.write(reinterpret_cast<const uint8_t *>(data), size);
+	if (written != size) {
+		return {DbStatusCode::IoError, "snapshot write failed"};
+	}
+	return {DbStatusCode::Ok, ""};
+}
+
+DbStatus writeSnapshotBytes(Print &out, const char *text) {
+	return text ? writeSnapshotBytes(out, text, std::strlen(text)) : DbStatus{DbStatusCode::Ok, ""};
+}
+
+DbStatus writeSnapshotString(Print &out, const std::string &text) {
+	return writeSnapshotBytes(out, text.data(), text.size());
+}
+
+std::string snapshotCollectionName(const std::string &path) {
+	auto pos = path.find_last_of('/');
+	return (pos == std::string::npos) ? path : path.substr(pos + 1);
+}
+} // namespace
+
+DbStatus ESPJsonDB::writeSnapshot(Stream &out, SnapshotMode mode) {
+	if (mode == SnapshotMode::InMemoryConsistent) {
+		auto syncStatus = syncNow();
+		if (!syncStatus.ok()) {
+			return setLastError(syncStatus);
+		}
+	}
+	if (!_fs) {
+		return setLastError({DbStatusCode::IoError, "filesystem not ready"});
+	}
+
+	WriteBufferingStream buffered(out, 512);
+	auto writeStatus = writeSnapshotBytes(buffered, "{\"collections\":{");
+	if (!writeStatus.ok()) {
+		return setLastError(writeStatus);
+	}
+
+	DirEntryVector colDirs{JsonDbAllocator<DirEntry>(_cfg.usePSRAMBuffers)};
+	listDirEntries(*_fs, _baseDir, colDirs);
+
+	RecordStore store(*_fs, _cfg.usePSRAMBuffers);
+	bool firstCollection = true;
+	for (auto &entry : colDirs) {
+		if (!entry.second) {
+			continue;
+		}
+
+		const std::string colName = snapshotCollectionName(entry.first);
+		if (isReservedName(colName)) {
+			continue;
+		}
+
+		JsonDocument keyDoc;
+		keyDoc.set(colName.c_str());
+		std::string keyJson;
+		serializeJson(keyDoc, keyJson);
+
+		if (!firstCollection) {
+			writeStatus = writeSnapshotBytes(buffered, ",");
+			if (!writeStatus.ok()) {
+				return setLastError(writeStatus);
+			}
+		}
+		firstCollection = false;
+
+		writeStatus = writeSnapshotString(buffered, keyJson);
+		if (!writeStatus.ok()) {
+			return setLastError(writeStatus);
+		}
+		writeStatus = writeSnapshotBytes(buffered, ":[");
+		if (!writeStatus.ok()) {
+			return setLastError(writeStatus);
+		}
+
+		const auto ids = store.listIds(entry.first);
+		bool firstDocument = true;
+		for (const auto &id : ids) {
+			auto rec = store.read(entry.first, id.c_str());
+			if (!rec.status.ok() || !rec.value) {
+				continue;
+			}
+
+			JsonDocument payload;
+			auto err = deserializeMsgPack(payload, rec.value->msgpack.data(), rec.value->msgpack.size());
+			if (err) {
+				continue;
+			}
+
+			JsonDocument snapshotEntry;
+			JsonObject obj = snapshotEntry.to<JsonObject>();
+			obj.set(payload.as<JsonObjectConst>());
+			obj["_id"] = rec.value->meta.id.c_str();
+			auto meta = obj["_meta"].to<JsonObject>();
+			meta["createdAtMs"] = rec.value->meta.createdAtMs;
+			meta["updatedAtMs"] = rec.value->meta.updatedAtMs;
+			meta["revision"] = rec.value->meta.revision;
+			meta["flags"] = rec.value->meta.flags;
+
+			std::string entryJson;
+			serializeJson(snapshotEntry, entryJson);
+
+			if (!firstDocument) {
+				writeStatus = writeSnapshotBytes(buffered, ",");
+				if (!writeStatus.ok()) {
+					return setLastError(writeStatus);
+				}
+			}
+			firstDocument = false;
+
+			writeStatus = writeSnapshotString(buffered, entryJson);
+			if (!writeStatus.ok()) {
+				return setLastError(writeStatus);
+			}
+		}
+
+		writeStatus = writeSnapshotBytes(buffered, "]");
+		if (!writeStatus.ok()) {
+			return setLastError(writeStatus);
+		}
+	}
+
+	writeStatus = writeSnapshotBytes(buffered, "}}");
+	if (!writeStatus.ok()) {
+		return setLastError(writeStatus);
+	}
+
+	buffered.flush();
+	if (buffered.getWriteError()) {
+		return setLastError({DbStatusCode::IoError, "snapshot write failed"});
+	}
+
+	return setLastError({DbStatusCode::Ok, ""});
+}
+
 JsonDocument ESPJsonDB::getSnapshot(SnapshotMode mode) {
 	JsonDocument snap;
 	if (mode == SnapshotMode::InMemoryConsistent) {
@@ -1758,6 +1898,16 @@ JsonDocument ESPJsonDB::getSnapshot(SnapshotMode mode) {
 	}
 	setLastError({DbStatusCode::Ok, ""});
 	return snap;
+}
+
+DbStatus ESPJsonDB::restoreFromSnapshot(Stream &in) {
+	ReadBufferingStream buffered(in, 512);
+	JsonDocument snapshot;
+	auto err = deserializeJson(snapshot, buffered);
+	if (err) {
+		return setLastError({DbStatusCode::InvalidArgument, "snapshot parse failed"});
+	}
+	return restoreFromSnapshot(snapshot);
 }
 
 DbStatus ESPJsonDB::restoreFromSnapshot(const JsonDocument &snapshot) {

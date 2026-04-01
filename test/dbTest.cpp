@@ -34,6 +34,8 @@ void DbTester::run() {
 	refPopulateTest();
 	idLifecycleRoundTripTest();
 	snapshotRestoreIdLifecycleTest();
+	snapshotStreamRoundTripTest();
+	snapshotStreamInvalidJsonTest();
 	docCodecCompatibilityTest();
 	optimisticConflictTest();
 	collectionBudgetEnforcementTest();
@@ -43,6 +45,12 @@ void DbTester::run() {
 	asyncFileUploadTest();
 	asyncFileUploadRetentionBoundTest();
 	asyncFileUploadQueueOrderTest();
+#if __has_include(<ESPCompressor.h>)
+	compressedSnapshotRoundTripTest();
+	compressedSnapshotFileRoundTripTest();
+	compressedSnapshotDbFilesRoundTripTest();
+	compressedSnapshotCorruptionTest();
+#endif
 	printDBDiag();
 	// Collection tests
 	simpleCollectionCreate();

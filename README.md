@@ -24,6 +24,8 @@ ESPJsonDB is an embedded document database for ESP32 boards. Version 2 stores do
 - Schema validation with typed defaults and required fields.
 - Unique field enforcement backed by in-memory indexes.
 - Snapshot / restore for document collections.
+- Stream-based snapshot export / import for backup pipelines without a full intermediate JSON string.
+- Optional `ESPCompressor` bridge for native compressed snapshot export / restore without adding a hard dependency.
 - Async file uploads and chunked file I/O through `FileStore`.
 - PSRAM-aware internal allocators for payload and buffer-heavy paths.
 
@@ -114,9 +116,16 @@ auto info = db.files().getFileInfo("notes/readme.txt");
 - `DbStatus registerSchema(name, schema)`
 - `DbStatus unregisterSchema(name)`
 - `JsonDocument getDiagnostics()`
+- `DbStatus writeSnapshot(Stream& out, SnapshotMode mode = SnapshotMode::OnDiskOnly)`
 - `JsonDocument getSnapshot(SnapshotMode mode = SnapshotMode::OnDiskOnly)`
+- `DbStatus restoreFromSnapshot(Stream& in)`
 - `DbStatus restoreFromSnapshot(const JsonDocument& snapshot)`
 - `FileStore& files()`
+
+If `ESPCompressor` is installed and `ESPJsonDBCompressor.h` is included, these bridge APIs are also available:
+
+- `DbStatus writeCompressedSnapshot(ESPCompressor&, CompressionSink&, SnapshotMode mode = SnapshotMode::OnDiskOnly, ProgressCallback = nullptr, const CompressionJobOptions& = {})`
+- `DbStatus restoreCompressedSnapshot(ESPCompressor&, CompressionSource&, ProgressCallback = nullptr, const CompressionJobOptions& = {})`
 
 ## Snapshot Format
 Snapshots are document-only and exclude `/_files`.
@@ -140,12 +149,84 @@ Snapshots are document-only and exclude `/_files`.
 }
 ```
 
+## Snapshot Streaming
+Use the stream APIs when you want snapshot transport without materializing a full serialized JSON string first.
+
+```cpp
+File snapshotFile = LittleFS.open("/backups/snapshot.json", FILE_WRITE);
+if (!snapshotFile) {
+    return;
+}
+
+DbStatus st = db.writeSnapshot(snapshotFile, SnapshotMode::InMemoryConsistent);
+snapshotFile.close();
+if (!st.ok()) {
+    Serial.printf("snapshot export failed: %s\n", st.message);
+    return;
+}
+```
+
+Restore can read the same JSON snapshot back from any Arduino `Stream`:
+
+```cpp
+File snapshotFile = LittleFS.open("/backups/snapshot.json", FILE_READ);
+if (!snapshotFile) {
+    return;
+}
+
+DbStatus st = db.restoreFromSnapshot(snapshotFile);
+snapshotFile.close();
+```
+
+## Optional ESPCompressor Bridge
+`ESPJsonDB` stays independent from `ESPCompressor`, but when both libraries are present you can use `ESPJsonDBCompressor.h` for native compressed snapshot flows.
+
+```cpp
+#include <ESPJsonDBCompressor.h>
+
+ESPJsonDB db;
+ESPCompressor compressor;
+
+void backupNow() {
+    if (compressor.init() != CompressionError::Ok) {
+        return;
+    }
+
+    FileSink sink(LittleFS, "/backups/latest.esc");
+    DbStatus st = db.writeCompressedSnapshot(
+        compressor,
+        sink,
+        SnapshotMode::InMemoryConsistent
+    );
+    if (!st.ok()) {
+        Serial.printf("compressed backup failed: %s\n", st.message);
+    }
+}
+```
+
+For restore, stage the compressed payload before destructive replacement when the backup itself is stored under `db.files()`:
+
+```cpp
+auto backup = db.files().readFile("backups/latest.esc");
+if (!backup.status.ok()) {
+    return;
+}
+
+BufferSource source(backup.value.data(), backup.value.size());
+DbStatus st = db.restoreCompressedSnapshot(compressor, source);
+```
+
+This keeps backup payloads as files while letting the app track backup metadata separately in normal collections if needed.
+Internally, `restoreCompressedSnapshot()` first decompresses into a temporary snapshot file outside the DB root so `dropAll()` cannot erase the staged restore input.
+
 ## Notes
 - `SnapshotMode::InMemoryConsistent` triggers `syncNow()` before reading persisted state.
+- `writeSnapshot(Stream&)` and `restoreFromSnapshot(Stream&)` preserve the existing snapshot JSON wire shape used by `getSnapshot()` and `restoreFromSnapshot(const JsonDocument&)`.
 - `CollectionLoadPolicy::Lazy` loads a collection on first access; `Delayed` defers load to background sync or explicit access.
 - `DocView::commit()` is the only write intent; metadata returned by `meta()` is durable record metadata.
 - New `.jdb` writes use the current v2 envelope; decode also accepts the earlier unreleased duplicated-`flags` envelope variant.
 - `/_files` remains reserved and is not a valid collection name.
+- If compressed backups are stored in `db.files()`, read or copy the backup payload before restore because `dropAll()` clears `/_files`.
 - v2 is a breaking release and does not read legacy v1 `.mp` files directly.
 
 ## Tests

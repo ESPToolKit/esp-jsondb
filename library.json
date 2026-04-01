@@ -42,7 +42,7 @@
       "version": "https://github.com/ESPToolKit/esp-buffer-manager.git"
     }
   ],
-  "headers": ["ESPJsonDB.h"],
+  "headers": ["ESPJsonDB.h", "ESPJsonDBCompressor.h"],
   "build": {
     "flags": [
       "-std=gnu++17"

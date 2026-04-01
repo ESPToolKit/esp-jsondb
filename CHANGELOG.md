@@ -5,11 +5,17 @@ All notable changes to this project are documented in this file.
 The format follows Keep a Changelog and the project adheres to Semantic Versioning.
 
 ## [Unreleased]
+### Added
+- `writeSnapshot(Stream&, SnapshotMode)` and `restoreFromSnapshot(Stream&)` for native stream-based snapshot transport without building a full serialized JSON string in user code.
+- Optional `ESPJsonDBCompressor.h` bridge with `writeCompressedSnapshot(...)` and `restoreCompressedSnapshot(...)` when `ESPCompressor` is available.
+- Snapshot stream and compressed snapshot roundtrip coverage in the hardware test harness, including `db.files()` staging before restore and invalid/corrupt input handling.
+
 ### Changed
 - Moved mutable DB ownership behind an internal runtime and moved file upload / path handling behind a real `FileStore` subsystem.
 - `Collection` now uses an internal backing store, enforces `maxDecodedViews` / `maxRecordsInMemory`, and applies revision-based conflict checks in update paths.
 - `ESPJsonDB` and `Collection` headers are now thin façades over internal runtime / store state instead of exposing runtime-owned reference members.
 - `.jdb` writes now use a single authoritative prefix `flags` field; decode still accepts the interim duplicated-`flags` v2 envelope.
+- Snapshot backup guidance now favors file-backed payloads plus optional collection metadata instead of storing compressed backup blobs as regular documents.
 
 ### Removed
 - Compatibility aliases `getDiag()`, `getAllCollectionName()`, and `unRegisterSchema()`.
