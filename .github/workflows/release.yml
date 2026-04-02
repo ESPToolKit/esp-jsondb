@@ -80,29 +80,20 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Extract changelog entry
-        id: changelog
-        uses: actions/github-script@v7
         with:
-          result-encoding: string
-          script: |
-            const tag = process.env.GITHUB_REF_NAME || '';
-            const version = tag.startsWith('v') ? tag.slice(1) : tag;
-            const fs = require('node:fs');
-            const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
-            const heading = `## [${version}]`;
-            const start = changelog.indexOf(heading);
-            let entry;
-            if (start === -1) {
-              entry = `No changelog entry found for version ${version}.`;
-            } else {
-              const afterHeading = start + heading.length;
-              const nextHeader = changelog.indexOf('\n## [', afterHeading);
-              const sliceEnd = nextHeader === -1 ? changelog.length : nextHeader;
-              entry = changelog.slice(start, sliceEnd).trim();
-            }
-            return entry;
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generate release changelog
+        run: |
+          python3 scripts/generate_release_changelog.py \
+            --target-ref "${GITHUB_REF_NAME}" \
+            --tag-name "${GITHUB_REF_NAME}" \
+            --output "release-changelog.md"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -110,6 +101,6 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: false
-          body: ${{ steps.changelog.outputs.result }}
+          body_path: release-changelog.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
