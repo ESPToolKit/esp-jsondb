@@ -78,7 +78,23 @@ jobs:
               await sleep(pollMs);
             }
 
-      - name: Checkout
+      - name: Checkout repository (attempt 1)
+        id: checkout_attempt_1
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout repository (attempt 2)
+        id: checkout_attempt_2
+        if: ${{ steps.checkout_attempt_1.outcome == 'failure' }}
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout repository (attempt 3)
+        if: ${{ steps.checkout_attempt_1.outcome == 'failure' && steps.checkout_attempt_2.outcome == 'failure' }}
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -99,7 +115,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           draft: false
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: false
           body_path: release-changelog.md
         env:
