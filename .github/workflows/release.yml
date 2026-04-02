@@ -1,103 +1,17 @@
 name: Release
 
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types:
-      - completed
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  evaluate-trigger:
-    runs-on: ubuntu-latest
-    outputs:
-      should_release: ${{ steps.resolve-tag.outputs.should_release }}
-      target_tag: ${{ steps.resolve-tag.outputs.target_tag }}
-    permissions:
-      contents: read
-    steps:
-      - name: Log triggering CI run
-        shell: bash
-        run: |
-          set -euo pipefail
-          head_branch="${{ github.event.workflow_run.head_branch }}"
-          if [ -z "$head_branch" ]; then
-            head_branch="<none>"
-          fi
-
-          echo "Triggered by CI run #${{ github.event.workflow_run.run_number }}"
-          echo "event=${{ github.event.workflow_run.event }}"
-          echo "conclusion=${{ github.event.workflow_run.conclusion }}"
-          echo "head_branch=${head_branch}"
-          echo "head_sha=${{ github.event.workflow_run.head_sha }}"
-
-      - name: Checkout repository for tag resolution
-        if: ${{ github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' }}
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.workflow_run.head_sha }}
-
-      - name: Resolve release target
-        id: resolve-tag
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "should_release=false" >> "$GITHUB_OUTPUT"
-          echo "target_tag=" >> "$GITHUB_OUTPUT"
-
-          event="${{ github.event.workflow_run.event }}"
-          conclusion="${{ github.event.workflow_run.conclusion }}"
-          head_branch="${{ github.event.workflow_run.head_branch }}"
-          head_sha="${{ github.event.workflow_run.head_sha }}"
-
-          if [ "$event" != "push" ]; then
-            echo "Skipping release: CI completed for event '$event', not a push."
-            exit 0
-          fi
-
-          if [ -n "$head_branch" ]; then
-            echo "Skipping release: CI completed for branch '$head_branch', not a tag push."
-            exit 0
-          fi
-
-          case "$conclusion" in
-            success)
-              ;;
-            failure|cancelled|timed_out|action_required)
-              echo "Release blocked: CI for tag candidate at $head_sha concluded with '$conclusion'."
-              exit 1
-              ;;
-            *)
-              echo "Release blocked: CI completed with unexpected conclusion '$conclusion' for tag candidate at $head_sha."
-              exit 1
-              ;;
-          esac
-
-          git fetch --force --tags origin
-          mapfile -t matching_tags < <(git tag --points-at "$head_sha" 'v*' | sort)
-
-          if [ "${#matching_tags[@]}" -eq 0 ]; then
-            echo "Release blocked: CI looks like a tag run, but no v* tag points at $head_sha."
-            exit 1
-          fi
-
-          if [ "${#matching_tags[@]}" -gt 1 ]; then
-            printf 'Release blocked: multiple v* tags point at %s: %s\n' "$head_sha" "${matching_tags[*]}"
-            exit 1
-          fi
-
-          target_tag="${matching_tags[0]}"
-          echo "Resolved release tag: ${target_tag}"
-          echo "should_release=true" >> "$GITHUB_OUTPUT"
-          echo "target_tag=${target_tag}" >> "$GITHUB_OUTPUT"
-
   create-release:
-    needs: evaluate-trigger
-    if: ${{ needs.evaluate-trigger.outputs.should_release == 'true' }}
     runs-on: ubuntu-latest
-    concurrency:
-      group: release-${{ needs.evaluate-trigger.outputs.target_tag }}
-      cancel-in-progress: false
     permissions:
       contents: write
     steps:
@@ -107,7 +21,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Checkout repository (attempt 2)
         id: checkout_attempt_2
@@ -116,18 +29,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Checkout repository (attempt 3)
         if: ${{ steps.checkout_attempt_1.outcome == 'failure' && steps.checkout_attempt_2.outcome == 'failure' }}
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.workflow_run.head_sha }}
-
-      - name: Log release target
-        run: |
-          echo "Creating release for ${{ needs.evaluate-trigger.outputs.target_tag }} at ${{ github.event.workflow_run.head_sha }}"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -137,17 +44,17 @@ jobs:
       - name: Generate release changelog
         run: |
           python3 scripts/generate_release_changelog.py \
-            --target-ref "${{ needs.evaluate-trigger.outputs.target_tag }}" \
-            --tag-name "${{ needs.evaluate-trigger.outputs.target_tag }}" \
+            --target-ref "${GITHUB_REF_NAME}" \
+            --tag-name "${GITHUB_REF_NAME}" \
             --output "release-changelog.md"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.evaluate-trigger.outputs.target_tag }}
-          target_commitish: ${{ github.event.workflow_run.head_sha }}
+          tag_name: ${{ github.ref_name }}
+          target_commitish: ${{ github.sha }}
           draft: false
-          prerelease: ${{ contains(needs.evaluate-trigger.outputs.target_tag, '-') }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: false
           body_path: release-changelog.md
         env:
