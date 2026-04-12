@@ -91,11 +91,18 @@ RecordStore::read(const std::string &collectionDir, const std::string &id) const
 		}
 	}
 
-	auto record =
-	    std::allocate_shared<DocumentRecord>(JsonDbAllocator<DocumentRecord>(_usePSRAMBuffers), _usePSRAMBuffers);
+	auto record = std::allocate_shared<DocumentRecord>(
+	    JsonDbAllocator<DocumentRecord>(_usePSRAMBuffers),
+	    _usePSRAMBuffers
+	);
 	RecordHeader header;
-	auto decodeStatus =
-	    DocCodec::decodeRecord(encoded.data(), encoded.size(), header, record->msgpack, _usePSRAMBuffers);
+	auto decodeStatus = DocCodec::decodeRecord(
+	    encoded.data(),
+	    encoded.size(),
+	    header,
+	    record->msgpack,
+	    _usePSRAMBuffers
+	);
 	if (!decodeStatus.ok()) {
 		result.status = decodeStatus;
 		return result;

@@ -46,7 +46,7 @@ struct ESPJsonDBConfig {
 	UBaseType_t priority = 2;
 	BaseType_t coreId = tskNO_AFFINITY;
 	bool autosync = true;
-	fs::FS *fs = nullptr;     // optional external filesystem handle
+	fs::FS *fs = nullptr; // optional external filesystem handle
 	bool initFileSystem = true;
 	bool formatOnFail = true;
 	uint8_t maxOpenFiles = 10;

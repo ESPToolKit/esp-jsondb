@@ -18,8 +18,8 @@
 #endif
 
 #include <cstddef>
-#include <deque>
 #include <cstdlib>
+#include <deque>
 #include <limits>
 #include <map>
 #include <new>
@@ -88,20 +88,12 @@ template <typename T> class JsonDbAllocator {
 		if (n == 0)
 			return nullptr;
 		if (n > (std::numeric_limits<std::size_t>::max() / sizeof(T))) {
-#if defined(__cpp_exceptions)
-			throw std::bad_alloc();
-#else
-			std::abort();
-#endif
+			return nullptr;
 		}
 
 		void *memory = jsondb_allocator_detail::allocate(n * sizeof(T), _usePSRAMBuffers);
 		if (memory == nullptr) {
-#if defined(__cpp_exceptions)
-			throw std::bad_alloc();
-#else
-			std::abort();
-#endif
+			return nullptr;
 		}
 		return static_cast<T *>(memory);
 	}

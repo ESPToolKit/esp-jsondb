@@ -12,7 +12,7 @@ JsonObjectConst findFileEntry(JsonArrayConst entries, const char *path) {
 	}
 	return JsonObjectConst();
 }
-}
+} // namespace
 
 void DbTester::fileStorageTest() {
 	const std::string textPath = "docs/sample.txt";
@@ -118,7 +118,8 @@ void DbTester::fileStorageTest() {
 		return {DbStatusCode::Ok, ""};
 	};
 
-	auto syncCbWrite = db.files().writeFileStream("bin/copied_from_callback.bin", pullCb, streamOpts);
+	auto syncCbWrite =
+	    db.files().writeFileStream("bin/copied_from_callback.bin", pullCb, streamOpts);
 	if (!syncCbWrite.ok()) {
 		ESP_LOGE(DB_TESTER_TAG, "sync callback writeFileStream failed: %s", syncCbWrite.message);
 		return;
@@ -130,8 +131,11 @@ void DbTester::fileStorageTest() {
 		return;
 	}
 
-	auto sourceNotFound =
-	    db.files().writeFileFromPath("bin/not_created.bin", "/test_db/_files/bin/missing.bin", streamOpts);
+	auto sourceNotFound = db.files().writeFileFromPath(
+	    "bin/not_created.bin",
+	    "/test_db/_files/bin/missing.bin",
+	    streamOpts
+	);
 	if (sourceNotFound.ok() || sourceNotFound.code != DbStatusCode::NotFound) {
 		ESP_LOGE(DB_TESTER_TAG, "writeFileFromPath missing-source check failed");
 		return;
@@ -180,7 +184,11 @@ void DbTester::fileStorageTest() {
 void DbTester::fileMetadataDiscoveryTest() {
 	auto clearStatus = db.dropAll();
 	if (!clearStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest dropAll failed: %s", clearStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "fileMetadataDiscoveryTest dropAll failed: %s",
+		    clearStatus.message
+		);
 		return;
 	}
 
@@ -196,7 +204,11 @@ void DbTester::fileMetadataDiscoveryTest() {
 	userDoc["type"] = "file-listing-should-ignore-collections";
 	auto createRes = db.create("users", userDoc.as<JsonObjectConst>());
 	if (!createRes.status.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest create collection doc failed: %s", createRes.status.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "fileMetadataDiscoveryTest create collection doc failed: %s",
+		    createRes.status.message
+		);
 		return;
 	}
 
@@ -208,13 +220,16 @@ void DbTester::fileMetadataDiscoveryTest() {
 
 	auto fileInfo = db.files().getFileInfo("docs/info.txt");
 	if (!fileInfo.status.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest getFileInfo(file) failed: %s", fileInfo.status.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "fileMetadataDiscoveryTest getFileInfo(file) failed: %s",
+		    fileInfo.status.message
+		);
 		return;
 	}
 	if (strcmp(fileInfo.value["path"] | "", "docs/info.txt") != 0 ||
 	    strcmp(fileInfo.value["name"] | "", "info.txt") != 0 ||
-	    !fileInfo.value["exists"].as<bool>() ||
-	    fileInfo.value["isDirectory"].as<bool>() ||
+	    !fileInfo.value["exists"].as<bool>() || fileInfo.value["isDirectory"].as<bool>() ||
 	    fileInfo.value["size"].as<size_t>() != std::strlen("metadata")) {
 		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest file metadata mismatch");
 		return;
@@ -222,21 +237,27 @@ void DbTester::fileMetadataDiscoveryTest() {
 
 	auto dirInfo = db.files().getFileInfo("docs");
 	if (!dirInfo.status.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest getFileInfo(dir) failed: %s", dirInfo.status.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "fileMetadataDiscoveryTest getFileInfo(dir) failed: %s",
+		    dirInfo.status.message
+		);
 		return;
 	}
 	if (strcmp(dirInfo.value["path"] | "", "docs") != 0 ||
-	    strcmp(dirInfo.value["name"] | "", "docs") != 0 ||
-	    !dirInfo.value["exists"].as<bool>() ||
-	    !dirInfo.value["isDirectory"].as<bool>() ||
-	    dirInfo.value["size"].as<size_t>() != 0) {
+	    strcmp(dirInfo.value["name"] | "", "docs") != 0 || !dirInfo.value["exists"].as<bool>() ||
+	    !dirInfo.value["isDirectory"].as<bool>() || dirInfo.value["size"].as<size_t>() != 0) {
 		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest directory metadata mismatch");
 		return;
 	}
 
 	auto topLevel = db.files().listFiles("", false);
 	if (!topLevel.status.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest top-level listFiles failed: %s", topLevel.status.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "fileMetadataDiscoveryTest top-level listFiles failed: %s",
+		    topLevel.status.message
+		);
 		return;
 	}
 	JsonArrayConst topEntries = topLevel.value["entries"].as<JsonArrayConst>();
@@ -245,14 +266,19 @@ void DbTester::fileMetadataDiscoveryTest() {
 	auto nestedChildAtTop = findFileEntry(topEntries, "docs/nested/child.txt");
 	auto leakedCollection = findFileEntry(topEntries, "users");
 	if (topEntries.isNull() || topEntries.size() != 2 || topTxt.isNull() || docsDir.isNull() ||
-	    !docsDir["isDirectory"].as<bool>() || !nestedChildAtTop.isNull() || !leakedCollection.isNull()) {
+	    !docsDir["isDirectory"].as<bool>() || !nestedChildAtTop.isNull() ||
+	    !leakedCollection.isNull()) {
 		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest top-level listing mismatch");
 		return;
 	}
 
 	auto docsRecursive = db.files().listFiles("docs", true);
 	if (!docsRecursive.status.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest recursive listFiles failed: %s", docsRecursive.status.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "fileMetadataDiscoveryTest recursive listFiles failed: %s",
+		    docsRecursive.status.message
+		);
 		return;
 	}
 	JsonArrayConst docsEntries = docsRecursive.value["entries"].as<JsonArrayConst>();
@@ -272,19 +298,28 @@ void DbTester::fileMetadataDiscoveryTest() {
 
 	auto missingInfo = db.files().getFileInfo("missing.bin");
 	if (missingInfo.status.code != DbStatusCode::NotFound) {
-		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest expected NotFound for missing file info");
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "fileMetadataDiscoveryTest expected NotFound for missing file info"
+		);
 		return;
 	}
 
 	auto invalidInfo = db.files().getFileInfo("../escape");
 	if (invalidInfo.status.code != DbStatusCode::InvalidArgument) {
-		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest expected InvalidArgument for invalid file info path");
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "fileMetadataDiscoveryTest expected InvalidArgument for invalid file info path"
+		);
 		return;
 	}
 
 	auto invalidList = db.files().listFiles("../escape", true);
 	if (invalidList.status.code != DbStatusCode::InvalidArgument) {
-		ESP_LOGE(DB_TESTER_TAG, "fileMetadataDiscoveryTest expected InvalidArgument for invalid listFiles path");
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "fileMetadataDiscoveryTest expected InvalidArgument for invalid listFiles path"
+		);
 		return;
 	}
 
@@ -540,18 +575,22 @@ void DbTester::asyncFileUploadQueueOrderTest() {
 
 		DbFileUploadDoneCb doneCb =
 		    [&doneCount, &completionOrder, &doneOk](uint32_t uploadId, const DbStatus &st, size_t) {
-			const size_t idx = doneCount.fetch_add(1);
-			if (idx < uploadCount) {
-				completionOrder[idx] = uploadId;
-			}
-			if (!st.ok()) {
-				doneOk = false;
-			}
-		};
+			    const size_t idx = doneCount.fetch_add(1);
+			    if (idx < uploadCount) {
+				    completionOrder[idx] = uploadId;
+			    }
+			    if (!st.ok()) {
+				    doneOk = false;
+			    }
+		    };
 
 		auto asyncRes = db.files().writeFileStreamAsync(path, pullCb, opts, doneCb);
 		if (!asyncRes.status.ok()) {
-			ESP_LOGE(DB_TESTER_TAG, "Queue order test upload start failed: %s", asyncRes.status.message);
+			ESP_LOGE(
+			    DB_TESTER_TAG,
+			    "Queue order test upload start failed: %s",
+			    asyncRes.status.message
+			);
 			return;
 		}
 		uploadIds.push_back(asyncRes.value);

@@ -8,8 +8,22 @@ on:
   workflow_dispatch:
 
 jobs:
+  source-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Audit production sources
+        run: |
+          if rg -n '\bthrow\b|std::abort\(' src; then
+            echo "Embedded safety audit failed"
+            exit 1
+          fi
+
   build-examples:
     runs-on: ubuntu-latest
+    needs: source-audit
     strategy:
       fail-fast: false
       matrix:
@@ -55,6 +69,7 @@ jobs:
 
   arduino-cli:
     runs-on: ubuntu-latest
+    needs: source-audit
     strategy:
       fail-fast: false
       matrix:

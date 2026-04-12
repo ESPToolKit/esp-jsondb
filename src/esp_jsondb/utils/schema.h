@@ -59,24 +59,31 @@ struct SchemaField {
 
 	SchemaField() = default;
 
-	SchemaField(const char *fieldName, FieldType fieldType)
-	    : name(fieldName), type(fieldType) {
+	SchemaField(const char *fieldName, FieldType fieldType) : name(fieldName), type(fieldType) {
 	}
 
 	SchemaField(const char *fieldName, FieldType fieldType, const char *defaultString)
 	    : name(fieldName), type(fieldType), hasDefault(defaultString != nullptr),
-	      defaultValue(defaultString ? JsonDefaultValue(std::string(defaultString))
-	                                 : JsonDefaultValue(std::monostate{})) {
+	      defaultValue(
+	          defaultString ? JsonDefaultValue(std::string(defaultString))
+	                        : JsonDefaultValue(std::monostate{})
+	      ) {
 	}
 
-	SchemaField(const char *fieldName, FieldType fieldType, const char *defaultString, bool uniqueFlag)
+	SchemaField(
+	    const char *fieldName, FieldType fieldType, const char *defaultString, bool uniqueFlag
+	)
 	    : name(fieldName), type(fieldType), unique(uniqueFlag),
 	      hasDefault(defaultString != nullptr),
-	      defaultValue(defaultString ? JsonDefaultValue(std::string(defaultString))
-	                                 : JsonDefaultValue(std::monostate{})) {
+	      defaultValue(
+	          defaultString ? JsonDefaultValue(std::string(defaultString))
+	                        : JsonDefaultValue(std::monostate{})
+	      ) {
 	}
 
-	SchemaField(const char *fieldName, FieldType fieldType, JsonDefaultValue value, bool uniqueFlag = false)
+	SchemaField(
+	    const char *fieldName, FieldType fieldType, JsonDefaultValue value, bool uniqueFlag = false
+	)
 	    : name(fieldName), type(fieldType), unique(uniqueFlag), hasDefault(true),
 	      defaultValue(std::move(value)) {
 	}

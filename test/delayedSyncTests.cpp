@@ -15,7 +15,11 @@ std::string delayedCollectionPath(const std::string &name) {
 void DbTester::delayedCollectionAccessBeforeAutosyncTickTest() {
 	auto clearStatus = db.dropAll();
 	if (!clearStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "dropAll() failed before delayed access test: %s", clearStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "dropAll() failed before delayed access test: %s",
+		    clearStatus.message
+		);
 		return;
 	}
 
@@ -45,7 +49,11 @@ void DbTester::delayedCollectionAccessBeforeAutosyncTickTest() {
 
 	auto syncStatus = db.syncNow();
 	if (!syncStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "syncNow() failed while seeding delayed access test: %s", syncStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "syncNow() failed while seeding delayed access test: %s",
+		    syncStatus.message
+		);
 		return;
 	}
 
@@ -54,7 +62,8 @@ void DbTester::delayedCollectionAccessBeforeAutosyncTickTest() {
 	cfg.autosync = true;
 	cfg.intervalMs = 60000; // Keep autosync tick away so first access path is deterministic.
 	(void)db.configureCollection(
-	    "delayed_access", CollectionConfig{CollectionLoadPolicy::Delayed, 0, 0}
+	    "delayed_access",
+	    CollectionConfig{CollectionLoadPolicy::Delayed, 0, 0}
 	);
 	auto initStatus = db.init("/test_db", cfg);
 	if (!initStatus.ok()) {
@@ -68,17 +77,16 @@ void DbTester::delayedCollectionAccessBeforeAutosyncTickTest() {
 		return;
 	}
 
-	auto immediateFind = db.findMany("immediate_access", [](const DocView &) {
-		return true;
-	});
+	auto immediateFind = db.findMany("immediate_access", [](const DocView &) { return true; });
 	if (!immediateFind.status.ok() || immediateFind.value.size() != 1) {
-		ESP_LOGE(DB_TESTER_TAG, "immediate_access was not available after init in delayed access test");
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "immediate_access was not available after init in delayed access test"
+		);
 		return;
 	}
 
-	auto delayedFind = db.findMany("delayed_access", [](const DocView &) {
-		return true;
-	});
+	auto delayedFind = db.findMany("delayed_access", [](const DocView &) { return true; });
 	if (!delayedFind.status.ok() || delayedFind.value.size() != 1) {
 		ESP_LOGE(DB_TESTER_TAG, "delayed_access did not load correctly on first access");
 		return;
@@ -96,7 +104,11 @@ void DbTester::delayedCollectionAccessBeforeAutosyncTickTest() {
 void DbTester::delayedCollectionSyncNowFallbackTest() {
 	auto clearStatus = db.dropAll();
 	if (!clearStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "dropAll() failed before syncNow fallback test: %s", clearStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "dropAll() failed before syncNow fallback test: %s",
+		    clearStatus.message
+		);
 		return;
 	}
 
@@ -126,7 +138,8 @@ void DbTester::delayedCollectionSyncNowFallbackTest() {
 	ESPJsonDBConfig cfg;
 	cfg.autosync = false;
 	(void)db.configureCollection(
-	    "delayed_syncnow", CollectionConfig{CollectionLoadPolicy::Delayed, 0, 0}
+	    "delayed_syncnow",
+	    CollectionConfig{CollectionLoadPolicy::Delayed, 0, 0}
 	);
 	auto initStatus = db.init("/test_db", cfg);
 	if (!initStatus.ok()) {
@@ -142,7 +155,11 @@ void DbTester::delayedCollectionSyncNowFallbackTest() {
 
 	auto triggerStatus = db.syncNow();
 	if (!triggerStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "syncNow() trigger failed in syncNow fallback test: %s", triggerStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "syncNow() trigger failed in syncNow fallback test: %s",
+		    triggerStatus.message
+		);
 		return;
 	}
 
@@ -152,9 +169,7 @@ void DbTester::delayedCollectionSyncNowFallbackTest() {
 		return;
 	}
 
-	auto delayedFind = db.findMany("delayed_syncnow", [](const DocView &) {
-		return true;
-	});
+	auto delayedFind = db.findMany("delayed_syncnow", [](const DocView &) { return true; });
 	if (!delayedFind.status.ok() || delayedFind.value.size() != 1) {
 		ESP_LOGE(DB_TESTER_TAG, "delayed_syncnow content missing after syncNow fallback load");
 		return;
@@ -166,7 +181,11 @@ void DbTester::delayedCollectionSyncNowFallbackTest() {
 void DbTester::delayedCollectionDropBeforeLoadTest() {
 	auto clearStatus = db.dropAll();
 	if (!clearStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "dropAll() failed before delayed drop test: %s", clearStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "dropAll() failed before delayed drop test: %s",
+		    clearStatus.message
+		);
 		return;
 	}
 
@@ -184,7 +203,11 @@ void DbTester::delayedCollectionDropBeforeLoadTest() {
 
 	auto seedSyncStatus = db.syncNow();
 	if (!seedSyncStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "syncNow() failed while seeding delayed drop test: %s", seedSyncStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "syncNow() failed while seeding delayed drop test: %s",
+		    seedSyncStatus.message
+		);
 		return;
 	}
 
@@ -192,7 +215,8 @@ void DbTester::delayedCollectionDropBeforeLoadTest() {
 	ESPJsonDBConfig cfg;
 	cfg.autosync = false;
 	(void)db.configureCollection(
-	    "drop_before_load", CollectionConfig{CollectionLoadPolicy::Delayed, 0, 0}
+	    "drop_before_load",
+	    CollectionConfig{CollectionLoadPolicy::Delayed, 0, 0}
 	);
 	auto initStatus = db.init("/test_db", cfg);
 	if (!initStatus.ok()) {
@@ -208,7 +232,11 @@ void DbTester::delayedCollectionDropBeforeLoadTest() {
 
 	auto syncStatus = db.syncNow();
 	if (!syncStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "syncNow() failed while dropping delayed collection: %s", syncStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "syncNow() failed while dropping delayed collection: %s",
+		    syncStatus.message
+		);
 		return;
 	}
 
@@ -223,7 +251,11 @@ void DbTester::delayedCollectionDropBeforeLoadTest() {
 void DbTester::delayedCollectionConfigNormalizationTest() {
 	auto clearStatus = db.dropAll();
 	if (!clearStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "dropAll() failed before delayed normalization test: %s", clearStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "dropAll() failed before delayed normalization test: %s",
+		    clearStatus.message
+		);
 		return;
 	}
 
@@ -253,11 +285,16 @@ void DbTester::delayedCollectionConfigNormalizationTest() {
 	ESPJsonDBConfig cfg;
 	cfg.autosync = false;
 	(void)db.configureCollection(
-	    "dup_collection", CollectionConfig{CollectionLoadPolicy::Delayed, 0, 0}
+	    "dup_collection",
+	    CollectionConfig{CollectionLoadPolicy::Delayed, 0, 0}
 	);
 	auto initStatus = db.init("/test_db", cfg);
 	if (!initStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "re-init failed for delayed normalization test: %s", initStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "re-init failed for delayed normalization test: %s",
+		    initStatus.message
+		);
 		return;
 	}
 
@@ -283,9 +320,7 @@ void DbTester::delayedCollectionConfigNormalizationTest() {
 		return;
 	}
 
-	auto findRes = db.findMany("dup_collection", [](const DocView &) {
-		return true;
-	});
+	auto findRes = db.findMany("dup_collection", [](const DocView &) { return true; });
 	if (!findRes.status.ok() || findRes.value.size() != 1) {
 		ESP_LOGE(DB_TESTER_TAG, "dup_collection content invalid after normalization test load");
 		return;

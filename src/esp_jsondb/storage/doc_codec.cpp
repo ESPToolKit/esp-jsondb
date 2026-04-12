@@ -31,8 +31,7 @@ void appendU64(JsonDbVector<uint8_t> &out, uint64_t value) {
 bool readU16(const uint8_t *data, size_t size, size_t &offset, uint16_t &value) {
 	if (offset + 2 > size)
 		return false;
-	value = static_cast<uint16_t>(data[offset]) |
-	        (static_cast<uint16_t>(data[offset + 1]) << 8);
+	value = static_cast<uint16_t>(data[offset]) | (static_cast<uint16_t>(data[offset + 1]) << 8);
 	offset += 2;
 	return true;
 }
@@ -40,8 +39,7 @@ bool readU16(const uint8_t *data, size_t size, size_t &offset, uint16_t &value) 
 bool readU32(const uint8_t *data, size_t size, size_t &offset, uint32_t &value) {
 	if (offset + 4 > size)
 		return false;
-	value = static_cast<uint32_t>(data[offset]) |
-	        (static_cast<uint32_t>(data[offset + 1]) << 8) |
+	value = static_cast<uint32_t>(data[offset]) | (static_cast<uint32_t>(data[offset + 1]) << 8) |
 	        (static_cast<uint32_t>(data[offset + 2]) << 16) |
 	        (static_cast<uint32_t>(data[offset + 3]) << 24);
 	offset += 4;

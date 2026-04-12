@@ -9,29 +9,29 @@ namespace {
 
 DbStatus compressionStatus(CompressionError error) {
 	switch (error) {
-		case CompressionError::Ok:
-			return {DbStatusCode::Ok, ""};
-		case CompressionError::NotInitialized:
-			return {DbStatusCode::NotInitialized, compressionErrorToString(error)};
-		case CompressionError::Busy:
-		case CompressionError::Cancelled:
-			return {DbStatusCode::Busy, compressionErrorToString(error)};
-		case CompressionError::InvalidArgument:
-			return {DbStatusCode::InvalidArgument, compressionErrorToString(error)};
-		case CompressionError::CorruptData:
-			return {DbStatusCode::CorruptionDetected, compressionErrorToString(error)};
-		case CompressionError::UnsupportedVersion:
-		case CompressionError::UnsupportedAlgorithm:
-			return {DbStatusCode::Unsupported, compressionErrorToString(error)};
-		case CompressionError::NoMemory:
-			return {DbStatusCode::Unknown, compressionErrorToString(error)};
-		case CompressionError::OpenFailed:
-		case CompressionError::ReadFailed:
-		case CompressionError::WriteFailed:
-		case CompressionError::OutputOverflow:
-		case CompressionError::InternalError:
-		default:
-			return {DbStatusCode::IoError, compressionErrorToString(error)};
+	case CompressionError::Ok:
+		return {DbStatusCode::Ok, ""};
+	case CompressionError::NotInitialized:
+		return {DbStatusCode::NotInitialized, compressionErrorToString(error)};
+	case CompressionError::Busy:
+	case CompressionError::Cancelled:
+		return {DbStatusCode::Busy, compressionErrorToString(error)};
+	case CompressionError::InvalidArgument:
+		return {DbStatusCode::InvalidArgument, compressionErrorToString(error)};
+	case CompressionError::CorruptData:
+		return {DbStatusCode::CorruptionDetected, compressionErrorToString(error)};
+	case CompressionError::UnsupportedVersion:
+	case CompressionError::UnsupportedAlgorithm:
+		return {DbStatusCode::Unsupported, compressionErrorToString(error)};
+	case CompressionError::NoMemory:
+		return {DbStatusCode::Unknown, compressionErrorToString(error)};
+	case CompressionError::OpenFailed:
+	case CompressionError::ReadFailed:
+	case CompressionError::WriteFailed:
+	case CompressionError::OutputOverflow:
+	case CompressionError::InternalError:
+	default:
+		return {DbStatusCode::IoError, compressionErrorToString(error)};
 	}
 }
 

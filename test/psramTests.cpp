@@ -14,7 +14,11 @@
 void DbTester::psramBufferWiringTest() {
 	auto clearStatus = db.dropAll();
 	if (!clearStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "dropAll() failed before PSRAM wiring test: %s", clearStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "dropAll() failed before PSRAM wiring test: %s",
+		    clearStatus.message
+		);
 		return;
 	}
 
@@ -34,18 +38,18 @@ void DbTester::psramBufferWiringTest() {
 	seedDoc["kind"] = "seed";
 	auto createRes = db.create("psram_wiring", seedDoc.as<JsonObjectConst>());
 	if (!createRes.status.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "create(seed) failed in PSRAM wiring test: %s", createRes.status.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "create(seed) failed in PSRAM wiring test: %s",
+		    createRes.status.message
+		);
 		return;
 	}
 
 	auto lambdaUpsert = db.updateOne(
 	    "psram_wiring",
-	    [](const DocView &v) {
-		    return v["kind"] == "lambda_match";
-	    },
-	    [](DocView &v) {
-		    v["kind"].set("lambda_created");
-	    },
+	    [](const DocView &v) { return v["kind"] == "lambda_match"; },
+	    [](DocView &v) { v["kind"].set("lambda_created"); },
 	    true
 	);
 	if (!lambdaUpsert.ok()) {
@@ -85,9 +89,7 @@ void DbTester::psramBufferWiringTest() {
 		return;
 	}
 
-	auto findRes = db.findMany("psram_wiring", [](const DocView &) {
-		return true;
-	});
+	auto findRes = db.findMany("psram_wiring", [](const DocView &) { return true; });
 	if (!findRes.status.ok()) {
 		ESP_LOGE(DB_TESTER_TAG, "findMany(psram_wiring) failed: %s", findRes.status.message);
 		return;
@@ -180,8 +182,9 @@ void DbTester::psramMemoryBenchmarkTest() {
 		}
 
 		const size_t preloadEndInternal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
-		out.preloadInternalUsed =
-		    preloadStartInternal > preloadEndInternal ? (preloadStartInternal - preloadEndInternal) : 0;
+		out.preloadInternalUsed = preloadStartInternal > preloadEndInternal
+		                              ? (preloadStartInternal - preloadEndInternal)
+		                              : 0;
 
 		struct UploadCtx {
 			std::vector<uint8_t> payload;
@@ -231,15 +234,19 @@ void DbTester::psramMemoryBenchmarkTest() {
 
 			DbFileUploadDoneCb doneCb =
 			    [&doneCount, &uploadFailed](uint32_t, const DbStatus &st, size_t bytesWritten) {
-				if (!st.ok() || bytesWritten == 0) {
-					uploadFailed = true;
-				}
-				doneCount.fetch_add(1);
-			};
+				    if (!st.ok() || bytesWritten == 0) {
+					    uploadFailed = true;
+				    }
+				    doneCount.fetch_add(1);
+			    };
 
 			auto asyncRes = db.files().writeFileStreamAsync(path, pullCb, opts, doneCb);
 			if (!asyncRes.status.ok()) {
-				ESP_LOGE(DB_TESTER_TAG, "benchmark async upload start failed: %s", asyncRes.status.message);
+				ESP_LOGE(
+				    DB_TESTER_TAG,
+				    "benchmark async upload start failed: %s",
+				    asyncRes.status.message
+				);
 				return false;
 			}
 		}

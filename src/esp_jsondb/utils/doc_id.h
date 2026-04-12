@@ -142,7 +142,8 @@ struct DocId {
 	}
 
   private:
-	static int compareRaw(const char *lhs, std::size_t lhsLen, const char *rhs, std::size_t rhsLen) {
+	static int
+	compareRaw(const char *lhs, std::size_t lhsLen, const char *rhs, std::size_t rhsLen) {
 		const std::size_t minLen = lhsLen < rhsLen ? lhsLen : rhsLen;
 		if (minLen > 0) {
 			const int cmp = std::memcmp(lhs, rhs, minLen);

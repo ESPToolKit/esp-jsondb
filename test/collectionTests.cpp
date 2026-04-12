@@ -4,7 +4,7 @@ namespace {
 bool pathExists(const std::string &path) {
 	return LittleFS.exists(path.c_str());
 }
-}
+} // namespace
 
 void DbTester::simpleCollectionCreate() {
 	auto result = db.collection("sensors");
@@ -64,7 +64,10 @@ void DbTester::collectionDirectoryCleanupOnSyncTest() {
 	}
 
 	if (!pathExists(collectionPath)) {
-		ESP_LOGE(DB_TESTER_TAG, "collectionDirectoryCleanupOnSyncTest expected collection dir on disk");
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "collectionDirectoryCleanupOnSyncTest expected collection dir on disk"
+		);
 		return;
 	}
 
@@ -124,7 +127,11 @@ void DbTester::dropAllRemovesBaseDirTest() {
 	const std::string filePath = "/test_db/_files/drop_all_cleanup/payload.txt";
 	auto clearStatus = db.dropAll();
 	if (!clearStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "dropAllRemovesBaseDirTest initial dropAll failed: %s", clearStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "dropAllRemovesBaseDirTest initial dropAll failed: %s",
+		    clearStatus.message
+		);
 		return;
 	}
 
@@ -132,13 +139,21 @@ void DbTester::dropAllRemovesBaseDirTest() {
 	doc["dropAll"] = true;
 	auto createRes = db.create(docCollection, doc.as<JsonObjectConst>());
 	if (!createRes.status.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "dropAllRemovesBaseDirTest create failed: %s", createRes.status.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "dropAllRemovesBaseDirTest create failed: %s",
+		    createRes.status.message
+		);
 		return;
 	}
 
 	auto fileWrite = db.files().writeTextFile("drop_all_cleanup/payload.txt", "cleanup");
 	if (!fileWrite.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "dropAllRemovesBaseDirTest writeTextFile failed: %s", fileWrite.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "dropAllRemovesBaseDirTest writeTextFile failed: %s",
+		    fileWrite.message
+		);
 		return;
 	}
 
@@ -160,7 +175,10 @@ void DbTester::dropAllRemovesBaseDirTest() {
 	}
 
 	if (!pathExists("/test_db")) {
-		ESP_LOGE(DB_TESTER_TAG, "dropAllRemovesBaseDirTest baseDir was not recreated after dropAll");
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "dropAllRemovesBaseDirTest baseDir was not recreated after dropAll"
+		);
 		return;
 	}
 	const std::string collectionPath = std::string("/test_db/") + docCollection;
@@ -179,7 +197,11 @@ void DbTester::collectionBudgetEnforcementTest() {
 
 	auto initStatus = budgetDb.init("/test_budget_db", cfg);
 	if (!initStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "collectionBudgetEnforcementTest init failed: %s", initStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "collectionBudgetEnforcementTest init failed: %s",
+		    initStatus.message
+		);
 		return;
 	}
 
@@ -201,7 +223,11 @@ void DbTester::collectionBudgetEnforcementTest() {
 
 	auto syncStatus = budgetDb.syncNow();
 	if (!syncStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "collectionBudgetEnforcementTest sync failed: %s", syncStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "collectionBudgetEnforcementTest sync failed: %s",
+		    syncStatus.message
+		);
 		budgetDb.deinit();
 		return;
 	}
@@ -209,12 +235,18 @@ void DbTester::collectionBudgetEnforcementTest() {
 
 	initStatus = budgetDb.init("/test_budget_db", cfg);
 	if (!initStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "collectionBudgetEnforcementTest re-init failed: %s", initStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "collectionBudgetEnforcementTest re-init failed: %s",
+		    initStatus.message
+		);
 		return;
 	}
 
 	auto residentCfgStatus = budgetDb.configureCollection(
-	    collection, CollectionConfig{CollectionLoadPolicy::Lazy, 0, 1});
+	    collection,
+	    CollectionConfig{CollectionLoadPolicy::Lazy, 0, 1}
+	);
 	if (!residentCfgStatus.ok()) {
 		ESP_LOGE(
 		    DB_TESTER_TAG,
@@ -227,13 +259,20 @@ void DbTester::collectionBudgetEnforcementTest() {
 
 	auto firstView = budgetDb.findById(collection, firstCreate.value);
 	if (!firstView.status.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "collectionBudgetEnforcementTest first lazy load failed: %s", firstView.status.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "collectionBudgetEnforcementTest first lazy load failed: %s",
+		    firstView.status.message
+		);
 		budgetDb.deinit();
 		return;
 	}
 	auto secondView = budgetDb.findById(collection, secondCreate.value);
 	if (secondView.status.code != DbStatusCode::Busy) {
-		ESP_LOGE(DB_TESTER_TAG, "collectionBudgetEnforcementTest expected Busy for resident budget");
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "collectionBudgetEnforcementTest expected Busy for resident budget"
+		);
 		budgetDb.deinit();
 		return;
 	}
@@ -241,12 +280,18 @@ void DbTester::collectionBudgetEnforcementTest() {
 	budgetDb.deinit();
 	initStatus = budgetDb.init("/test_budget_db", cfg);
 	if (!initStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "collectionBudgetEnforcementTest third init failed: %s", initStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "collectionBudgetEnforcementTest third init failed: %s",
+		    initStatus.message
+		);
 		return;
 	}
 
 	auto decodeCfgStatus = budgetDb.configureCollection(
-	    collection, CollectionConfig{CollectionLoadPolicy::Eager, 1, 0});
+	    collection,
+	    CollectionConfig{CollectionLoadPolicy::Eager, 1, 0}
+	);
 	if (!decodeCfgStatus.ok()) {
 		ESP_LOGE(
 		    DB_TESTER_TAG,

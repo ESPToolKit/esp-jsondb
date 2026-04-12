@@ -1,8 +1,8 @@
 #pragma once
 
 #include <Arduino.h>
-#include <sys/time.h>
 #include <ctime>
+#include <sys/time.h>
 
 inline uint64_t nowUtcMs() {
 	timeval tv{};

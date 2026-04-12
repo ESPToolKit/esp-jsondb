@@ -72,7 +72,8 @@ void setup() {
 	opts.chunkSize = 128;
 	opts.overwrite = true;
 
-	auto start = db.files().writeFileStreamAsync("uploads/telemetry.bin", uploadPull, opts, onUploadDone);
+	auto start =
+	    db.files().writeFileStreamAsync("uploads/telemetry.bin", uploadPull, opts, onUploadDone);
 	if (!start.status.ok()) {
 		Serial.printf("writeFileStreamAsync failed: %s\n", start.status.message);
 		return;

@@ -11,7 +11,8 @@
 
 class RecordStore {
   public:
-	RecordStore(fs::FS &fs, bool usePSRAMBuffers = false) : _fs(&fs), _usePSRAMBuffers(usePSRAMBuffers) {
+	RecordStore(fs::FS &fs, bool usePSRAMBuffers = false)
+	    : _fs(&fs), _usePSRAMBuffers(usePSRAMBuffers) {
 	}
 
 	DbStatus write(const std::string &collectionDir, const DocumentRecord &record);

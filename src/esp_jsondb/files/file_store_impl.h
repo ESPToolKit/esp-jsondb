@@ -50,10 +50,10 @@ struct FileStoreImpl {
 	    const std::string &sourceFsPath,
 	    const ESPJsonDBFileOptions &opts
 	);
-	DbStatus writeFile(
-	    const std::string &relativePath, const uint8_t *data, size_t size, bool overwrite
-	);
-	DbStatus writeTextFile(const std::string &relativePath, const std::string &text, bool overwrite);
+	DbStatus
+	writeFile(const std::string &relativePath, const uint8_t *data, size_t size, bool overwrite);
+	DbStatus
+	writeTextFile(const std::string &relativePath, const std::string &text, bool overwrite);
 	DbResult<size_t> readFileStream(const std::string &relativePath, Stream &out, size_t chunkSize);
 	DbResult<std::vector<uint8_t>> readFile(const std::string &relativePath);
 	DbResult<std::string> readTextFile(const std::string &relativePath);

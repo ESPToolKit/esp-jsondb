@@ -10,7 +10,8 @@
 namespace {
 std::shared_ptr<DocumentRecord> makeSharedDocumentRecord(bool usePSRAMBuffers) {
 	return std::allocate_shared<DocumentRecord>(
-	    JsonDbAllocator<DocumentRecord>(usePSRAMBuffers), usePSRAMBuffers
+	    JsonDbAllocator<DocumentRecord>(usePSRAMBuffers),
+	    usePSRAMBuffers
 	);
 }
 
@@ -18,13 +19,16 @@ using DocumentRecordPtr = std::shared_ptr<DocumentRecord>;
 using DocumentMapValue = std::pair<const DocId, DocumentRecordPtr>;
 using DocumentMapAllocator = JsonDbAllocator<DocumentMapValue>;
 using DocumentMap = std::map<DocId, DocumentRecordPtr, DocIdLess, DocumentMapAllocator>;
-using UniqueValueMap = std::map<std::string, DocId, std::less<std::string>,
-                                JsonDbAllocator<std::pair<const std::string, DocId>>>;
-using UniqueIndexMap =
-    std::map<std::string,
-             UniqueValueMap,
-             std::less<std::string>,
-             JsonDbAllocator<std::pair<const std::string, UniqueValueMap>>>;
+using UniqueValueMap = std::map<
+    std::string,
+    DocId,
+    std::less<std::string>,
+    JsonDbAllocator<std::pair<const std::string, DocId>>>;
+using UniqueIndexMap = std::map<
+    std::string,
+    UniqueValueMap,
+    std::less<std::string>,
+    JsonDbAllocator<std::pair<const std::string, UniqueValueMap>>>;
 } // namespace
 
 struct CollectionStore {
@@ -75,9 +79,11 @@ Collection::Collection(
     bool usePSRAMBuffers,
     fs::FS &fs
 )
-    : _store(std::make_unique<CollectionStore>(
-          rt, name, schema, std::move(baseDir), config, usePSRAMBuffers, fs
-      )) {
+    : _store(
+          std::make_unique<CollectionStore>(
+              rt, name, schema, std::move(baseDir), config, usePSRAMBuffers, fs
+          )
+      ) {
 }
 
 Collection::~Collection() = default;
@@ -151,9 +157,8 @@ void Collection::noteDeletedInDiag(size_t count) const {
 }
 
 bool Collection::isResidentBudgetEnforced() const {
-	return _config.maxRecordsInMemory > 0 &&
-	       (_config.loadPolicy == CollectionLoadPolicy::Lazy ||
-	        _config.loadPolicy == CollectionLoadPolicy::Delayed);
+	return _config.maxRecordsInMemory > 0 && (_config.loadPolicy == CollectionLoadPolicy::Lazy ||
+	                                          _config.loadPolicy == CollectionLoadPolicy::Delayed);
 }
 
 bool Collection::isDecodedBudgetEnforced() const {
@@ -180,7 +185,8 @@ void Collection::forgetKnownIdLocked(const DocId &id) {
 }
 
 bool Collection::containsKnownIdLocked(const DocId &id) const {
-	return std::find(_store->knownIds.begin(), _store->knownIds.end(), id) != _store->knownIds.end();
+	return std::find(_store->knownIds.begin(), _store->knownIds.end(), id) !=
+	       _store->knownIds.end();
 }
 
 DbStatus Collection::ensureResidentCapacityLocked(size_t additional, const DocId *protectId) {
@@ -372,7 +378,10 @@ DbStatus Collection::rebuildUniqueIndexesLocked() {
 		}
 		auto err = deserializeMsgPack(doc, kv.second->msgpack.data(), kv.second->msgpack.size());
 		if (err) {
-			return {DbStatusCode::CorruptionDetected, "msgpack decode failed while rebuilding index"};
+			return {
+			    DbStatusCode::CorruptionDetected,
+			    "msgpack decode failed while rebuilding index"
+			};
 		}
 		auto st = addUniqueValuesLocked(doc.as<JsonObjectConst>(), kv.first);
 		if (!st.ok())
@@ -530,35 +539,43 @@ DbResult<DocView> Collection::findById(const std::string &id) {
 	if (!lookupId.assign(id)) {
 		DbStatus st{DbStatusCode::NotFound, "document not found"};
 		recordStatus(st);
-		return {st,
-		        DocView(nullptr,
-		                &_schema,
-		                nullptr,
-		                _rt ? _rt->owner : nullptr,
-		                nullptr,
-		                nullptr,
-		                nullptr,
-		                nullptr,
-		                nullptr,
-		                false,
-		                _usePSRAMBuffers)};
+		return {
+		    st,
+		    DocView(
+		        nullptr,
+		        &_schema,
+		        nullptr,
+		        _rt ? _rt->owner : nullptr,
+		        nullptr,
+		        nullptr,
+		        nullptr,
+		        nullptr,
+		        nullptr,
+		        false,
+		        _usePSRAMBuffers
+		    )
+		};
 	}
 
 	auto loaded = ensureRecordLoaded(lookupId);
 	if (!loaded.status.ok()) {
 		recordStatus(loaded.status);
-		return {loaded.status,
-		        DocView(nullptr,
-		                &_schema,
-		                nullptr,
-		                _rt ? _rt->owner : nullptr,
-		                nullptr,
-		                nullptr,
-		                nullptr,
-		                nullptr,
-		                nullptr,
-		                false,
-		                _usePSRAMBuffers)};
+		return {
+		    loaded.status,
+		    DocView(
+		        nullptr,
+		        &_schema,
+		        nullptr,
+		        _rt ? _rt->owner : nullptr,
+		        nullptr,
+		        nullptr,
+		        nullptr,
+		        nullptr,
+		        nullptr,
+		        false,
+		        _usePSRAMBuffers
+		    )
+		};
 	}
 	DbStatus st{DbStatusCode::Ok, ""};
 	recordStatus(st);
@@ -586,18 +603,22 @@ DbResult<std::vector<DocView>> Collection::findMany(std::function<bool(const Doc
 DbResult<DocView> Collection::findOne(std::function<bool(const DocView &)> pred) {
 	auto idsRes = collectMatchingIds(std::move(pred));
 	if (!idsRes.status.ok()) {
-		return {idsRes.status,
-		        DocView(nullptr,
-		                &_schema,
-		                nullptr,
-		                _rt ? _rt->owner : nullptr,
-		                nullptr,
-		                nullptr,
-		                nullptr,
-		                nullptr,
-		                nullptr,
-		                false,
-		                _usePSRAMBuffers)};
+		return {
+		    idsRes.status,
+		    DocView(
+		        nullptr,
+		        &_schema,
+		        nullptr,
+		        _rt ? _rt->owner : nullptr,
+		        nullptr,
+		        nullptr,
+		        nullptr,
+		        nullptr,
+		        nullptr,
+		        false,
+		        _usePSRAMBuffers
+		    )
+		};
 	}
 	if (!idsRes.value.empty()) {
 		auto loaded = ensureRecordLoaded(idsRes.value.front());
@@ -609,18 +630,22 @@ DbResult<DocView> Collection::findOne(std::function<bool(const DocView &)> pred)
 	}
 	DbStatus st{DbStatusCode::NotFound, "document not found"};
 	recordStatus(st);
-	return {st,
-	        DocView(nullptr,
-	                &_schema,
-	                nullptr,
-	                _rt ? _rt->owner : nullptr,
-	                nullptr,
-	                nullptr,
-	                nullptr,
-	                nullptr,
-	                nullptr,
-	                false,
-	                _usePSRAMBuffers)};
+	return {
+	    st,
+	    DocView(
+	        nullptr,
+	        &_schema,
+	        nullptr,
+	        _rt ? _rt->owner : nullptr,
+	        nullptr,
+	        nullptr,
+	        nullptr,
+	        nullptr,
+	        nullptr,
+	        false,
+	        _usePSRAMBuffers
+	    )
+	};
 }
 
 DbResult<DocView> Collection::findOne(const JsonDocument &filter) {
@@ -636,9 +661,8 @@ DbResult<DocView> Collection::findOne(const JsonDocument &filter) {
 	return findOne(std::move(pred));
 }
 
-DbResult<JsonDbVector<DocId>> Collection::collectMatchingIds(
-    std::function<bool(const DocView &)> pred
-) {
+DbResult<JsonDbVector<DocId>>
+Collection::collectMatchingIds(std::function<bool(const DocView &)> pred) {
 	DbResult<JsonDbVector<DocId>> res{};
 	res.value = JsonDbVector<DocId>(JsonDbAllocator<DocId>(_usePSRAMBuffers));
 	JsonDbVector<DocId> ids{JsonDbAllocator<DocId>(_usePSRAMBuffers)};
@@ -662,17 +686,19 @@ DbResult<JsonDbVector<DocId>> Collection::collectMatchingIds(
 			if (it == _docs.end())
 				continue;
 			touchRecordLocked(it->second);
-			DocView v(it->second,
-			          &_schema,
-			          nullptr,
-			          _rt ? _rt->owner : nullptr,
-			          nullptr,
-			          nullptr,
-			          nullptr,
-			          nullptr,
-			          nullptr,
-			          false,
-			          _usePSRAMBuffers);
+			DocView v(
+			    it->second,
+			    &_schema,
+			    nullptr,
+			    _rt ? _rt->owner : nullptr,
+			    nullptr,
+			    nullptr,
+			    nullptr,
+			    nullptr,
+			    nullptr,
+			    false,
+			    _usePSRAMBuffers
+			);
 			matched = !pred || pred(v);
 		}
 		if (matched) {
@@ -713,17 +739,19 @@ DbStatus Collection::updateOne(
 		rec->meta.dirty = true;
 		touchRecordLocked(rec);
 
-		DocView v(rec,
-		          &_schema,
-		          nullptr,
-		          _rt ? _rt->owner : nullptr,
-		          nullptr,
-		          nullptr,
-		          nullptr,
-		          nullptr,
-		          nullptr,
-		          false,
-		          _usePSRAMBuffers);
+		DocView v(
+		    rec,
+		    &_schema,
+		    nullptr,
+		    _rt ? _rt->owner : nullptr,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    false,
+		    _usePSRAMBuffers
+		);
 		// Initialize as empty object then let mutator fill values
 		v.asObject();
 		mutator(v);
@@ -805,17 +833,19 @@ DbStatus Collection::updateOne(const JsonDocument &filter, const JsonDocument &p
 		rec->meta.dirty = true;
 		touchRecordLocked(rec);
 
-		DocView v(rec,
-		          &_schema,
-		          nullptr,
-		          _rt ? _rt->owner : nullptr,
-		          nullptr,
-		          nullptr,
-		          nullptr,
-		          nullptr,
-		          nullptr,
-		          false,
-		          _usePSRAMBuffers);
+		DocView v(
+		    rec,
+		    &_schema,
+		    nullptr,
+		    _rt ? _rt->owner : nullptr,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    false,
+		    _usePSRAMBuffers
+		);
 		auto obj = v.asObject();
 		for (auto kvf : filter.as<JsonObjectConst>()) {
 			obj[kvf.key().c_str()] = kvf.value();
@@ -902,7 +932,8 @@ DbStatus Collection::updateByIdWithDecision(
 		startRevision = liveRec->meta.revision;
 		touchRecordLocked(liveRec);
 		if (!liveRec->msgpack.empty()) {
-			auto err = deserializeMsgPack(beforeDoc, liveRec->msgpack.data(), liveRec->msgpack.size());
+			auto err =
+			    deserializeMsgPack(beforeDoc, liveRec->msgpack.data(), liveRec->msgpack.size());
 			if (err) {
 				return recordStatus({DbStatusCode::CorruptionDetected, "msgpack decode failed"});
 			}
@@ -952,11 +983,10 @@ DbStatus Collection::updateByIdWithDecision(
 		if (it->second->meta.revision != startRevision) {
 			return recordStatus({DbStatusCode::Conflict, "document changed during update"});
 		}
-		auto uniqueStatus =
-		    checkUniqueFields(candidate->msgpack.empty()
-		                          ? JsonObjectConst()
-		                          : working.asObjectConst(),
-		                      &lookupId);
+		auto uniqueStatus = checkUniqueFields(
+		    candidate->msgpack.empty() ? JsonObjectConst() : working.asObjectConst(),
+		    &lookupId
+		);
 		if (!uniqueStatus.ok()) {
 			return recordStatus(uniqueStatus);
 		}
@@ -994,17 +1024,19 @@ DbStatus Collection::removeById(const std::string &id) {
 		auto it = _docs.find(lookupId);
 		if (it == _docs.end())
 			return recordStatus({DbStatusCode::NotFound, "document not found"});
-		DocView view(it->second,
-		             &_schema,
-		             nullptr,
-		             _rt ? _rt->owner : nullptr,
-		             nullptr,
-		             nullptr,
-		             nullptr,
-		             nullptr,
-		             nullptr,
-		             false,
-		             _usePSRAMBuffers);
+		DocView view(
+		    it->second,
+		    &_schema,
+		    nullptr,
+		    _rt ? _rt->owner : nullptr,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    false,
+		    _usePSRAMBuffers
+		);
 		removeUniqueValuesLocked(view.asObjectConst(), it->first);
 		it->second->meta.removed = true;
 		_deletedIds.push_back(it->first);

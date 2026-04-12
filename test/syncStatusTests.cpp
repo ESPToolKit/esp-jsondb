@@ -18,7 +18,11 @@ std::shared_ptr<SyncStatusCapture> attachSyncStatusCapture(ESPJsonDB &db) {
 void DbTester::syncStatusColdPreloadSequenceTest() {
 	auto clearStatus = db.dropAll();
 	if (!clearStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "dropAll() failed before sync status cold preload test: %s", clearStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "dropAll() failed before sync status cold preload test: %s",
+		    clearStatus.message
+		);
 		return;
 	}
 
@@ -40,7 +44,11 @@ void DbTester::syncStatusColdPreloadSequenceTest() {
 
 	auto seedSyncStatus = db.syncNow();
 	if (!seedSyncStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "syncNow() failed while seeding cold preload test: %s", seedSyncStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "syncNow() failed while seeding cold preload test: %s",
+		    seedSyncStatus.message
+		);
 		return;
 	}
 
@@ -51,7 +59,11 @@ void DbTester::syncStatusColdPreloadSequenceTest() {
 	cfg.autosync = false;
 	auto initStatus = db.init("/test_db", cfg);
 	if (!initStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "re-init failed for sync status cold preload test: %s", initStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "re-init failed for sync status cold preload test: %s",
+		    initStatus.message
+		);
 		return;
 	}
 
@@ -75,7 +87,8 @@ void DbTester::syncStatusColdPreloadSequenceTest() {
 	    DBSyncStage::ColdSyncCollectionCompleted,
 	    DBSyncStage::ColdSyncCollectionStarted,
 	    DBSyncStage::ColdSyncCollectionCompleted,
-	    DBSyncStage::ColdSyncCompleted};
+	    DBSyncStage::ColdSyncCompleted
+	};
 
 	for (std::size_t i = 0; i < expected.size(); ++i) {
 		if (capture->statuses[i + 1].stage != expected[i]) {
@@ -140,7 +153,8 @@ void DbTester::syncStatusLateSubscriptionSnapshotTest() {
 		ESP_LOGE(DB_TESTER_TAG, "late subscription snapshot expected ColdSyncCompleted from Init");
 		return;
 	}
-	if (snapshot.collectionsCompleted != 2 || snapshot.collectionsTotal != 2 || !snapshot.result.ok()) {
+	if (snapshot.collectionsCompleted != 2 || snapshot.collectionsTotal != 2 ||
+	    !snapshot.result.ok()) {
 		ESP_LOGE(DB_TESTER_TAG, "late subscription snapshot counters/status mismatch");
 		return;
 	}
@@ -154,7 +168,11 @@ void DbTester::syncStatusManualSyncNowTest() {
 	cfg.autosync = false;
 	auto initStatus = db.init("/test_db", cfg);
 	if (!initStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "re-init failed for manual sync status test: %s", initStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "re-init failed for manual sync status test: %s",
+		    initStatus.message
+		);
 		return;
 	}
 
@@ -165,13 +183,21 @@ void DbTester::syncStatusManualSyncNowTest() {
 	doc["kind"] = "manual_sync";
 	auto createRes = db.create("sync_manual", doc.as<JsonObjectConst>());
 	if (!createRes.status.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "manual sync status seed create failed: %s", createRes.status.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "manual sync status seed create failed: %s",
+		    createRes.status.message
+		);
 		return;
 	}
 
 	auto syncStatus = db.syncNow();
 	if (!syncStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "syncNow() failed in manual sync status test: %s", syncStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "syncNow() failed in manual sync status test: %s",
+		    syncStatus.message
+		);
 		return;
 	}
 
@@ -209,7 +235,11 @@ void DbTester::syncStatusPeriodicExclusionTest() {
 	cfg.intervalMs = 50;
 	auto initStatus = db.init("/test_db", cfg);
 	if (!initStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "re-init failed for periodic exclusion test: %s", initStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "re-init failed for periodic exclusion test: %s",
+		    initStatus.message
+		);
 		return;
 	}
 
@@ -220,7 +250,11 @@ void DbTester::syncStatusPeriodicExclusionTest() {
 	doc["kind"] = "periodic";
 	auto createRes = db.create("sync_periodic", doc.as<JsonObjectConst>());
 	if (!createRes.status.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "periodic exclusion seed create failed: %s", createRes.status.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "periodic exclusion seed create failed: %s",
+		    createRes.status.message
+		);
 		return;
 	}
 

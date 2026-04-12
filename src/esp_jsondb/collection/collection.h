@@ -14,12 +14,12 @@
 #include <utility>
 
 #include "../document/document.h"
+#include "../storage/record_store.h"
 #include "../utils/dbTypes.h"
 #include "../utils/fr_mutex.h"
 #include "../utils/jsondb_allocator.h"
 #include "../utils/objectId.h"
 #include "../utils/schema.h"
-#include "../storage/record_store.h"
 
 struct DbRuntime;
 struct CollectionStore;
@@ -152,9 +152,7 @@ class Collection {
 	DbStatus acquireDecodedViewSlot();
 	void releaseDecodedViewSlot();
 	DbStatus updateByIdWithDecision(
-	    const std::string &id,
-	    std::function<bool(DocView &)> mutator,
-	    bool &updated
+	    const std::string &id, std::function<bool(DocView &)> mutator, bool &updated
 	);
 	DbStatus updateOneNoCache(
 	    std::function<bool(const DocView &)> pred,
@@ -220,8 +218,8 @@ DbResult<size_t> Collection::updateMany(Pred &&p, Mut &&m) {
 		if (st.ok() && updated)
 			++res.value;
 	}
-	res.status = sawConflict ? DbStatus{DbStatusCode::Conflict, "concurrent modification"} :
-	                           DbStatus{DbStatusCode::Ok, ""};
+	res.status = sawConflict ? DbStatus{DbStatusCode::Conflict, "concurrent modification"}
+	                         : DbStatus{DbStatusCode::Ok, ""};
 	recordStatus(res.status);
 	return res;
 }
@@ -254,8 +252,8 @@ template <typename Mut, typename> DbResult<size_t> Collection::updateMany(Mut &&
 		if (st.ok() && updated)
 			++res.value;
 	}
-	res.status = sawConflict ? DbStatus{DbStatusCode::Conflict, "concurrent modification"} :
-	                           DbStatus{DbStatusCode::Ok, ""};
+	res.status = sawConflict ? DbStatus{DbStatusCode::Conflict, "concurrent modification"}
+	                         : DbStatus{DbStatusCode::Ok, ""};
 	recordStatus(res.status);
 	return res;
 }

@@ -37,7 +37,8 @@ void setup() {
 	}
 
 	// 1) Plain text file
-	st = db.files().writeTextFile("docs/readme.txt", "Hello from ESPJsonDB file storage.\nLine #2.");
+	st =
+	    db.files().writeTextFile("docs/readme.txt", "Hello from ESPJsonDB file storage.\nLine #2.");
 	if (!st.ok()) {
 		Serial.printf("writeTextFile(txt) failed: %s\n", st.message);
 		return;
@@ -51,7 +52,8 @@ void setup() {
 	}
 
 	// 3) CSV file
-	st = db.files().writeTextFile("exports/metrics.csv", "ts,temp,humidity\n1,21.4,48\n2,21.7,47\n");
+	st =
+	    db.files().writeTextFile("exports/metrics.csv", "ts,temp,humidity\n1,21.4,48\n2,21.7,47\n");
 	if (!st.ok()) {
 		Serial.printf("writeTextFile(csv) failed: %s\n", st.message);
 		return;

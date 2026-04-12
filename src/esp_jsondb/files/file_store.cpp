@@ -217,9 +217,8 @@ FileStoreImpl::FileStoreImpl(DbRuntime &rt)
       terminalUploadOrder(JsonDbAllocator<uint32_t>(rt.cfg.usePSRAMBuffers)) {
 }
 
-DbStatus FileStoreImpl::normalizePath(
-    const std::string &rawRelativePath, std::string &normalized
-) const {
+DbStatus
+FileStoreImpl::normalizePath(const std::string &rawRelativePath, std::string &normalized) const {
 	normalized.clear();
 	if (rawRelativePath.empty()) {
 		return {DbStatusCode::InvalidArgument, "file path is empty"};
@@ -289,8 +288,8 @@ DbStatus FileStoreImpl::writeFileStream(
 	const std::string finalPath = joinPath(_rt->fileRootDir(), normalized);
 	size_t remaining = bytesToWrite;
 	DbFileUploadPullCb pullCb =
-	    [&in, &remaining](size_t requested, uint8_t *buffer, size_t &produced, bool &eof)
-	    -> DbStatus {
+	    [&in,
+	     &remaining](size_t requested, uint8_t *buffer, size_t &produced, bool &eof) -> DbStatus {
 		if (!buffer) {
 			return {DbStatusCode::InvalidArgument, "buffer is null"};
 		}
@@ -311,7 +310,8 @@ DbStatus FileStoreImpl::writeFileStream(
 	};
 
 	size_t totalWritten = 0;
-	auto st = writeFromPullCb(*_rt->fs, finalPath, _rt->cfg.usePSRAMBuffers, opts, pullCb, totalWritten);
+	auto st =
+	    writeFromPullCb(*_rt->fs, finalPath, _rt->cfg.usePSRAMBuffers, opts, pullCb, totalWritten);
 	if (!st.ok())
 		return _rt->recordStatus(st);
 	if (totalWritten != bytesToWrite) {
@@ -337,7 +337,8 @@ DbStatus FileStoreImpl::writeFileStream(
 
 	const std::string finalPath = joinPath(_rt->fileRootDir(), normalized);
 	size_t totalWritten = 0;
-	auto st = writeFromPullCb(*_rt->fs, finalPath, _rt->cfg.usePSRAMBuffers, opts, pullCb, totalWritten);
+	auto st =
+	    writeFromPullCb(*_rt->fs, finalPath, _rt->cfg.usePSRAMBuffers, opts, pullCb, totalWritten);
 	return _rt->recordStatus(st);
 }
 
@@ -428,8 +429,9 @@ DbStatus FileStoreImpl::writeFile(
 	return _rt->recordStatus({DbStatusCode::Ok, ""});
 }
 
-DbStatus
-FileStoreImpl::writeTextFile(const std::string &relativePath, const std::string &text, bool overwrite) {
+DbStatus FileStoreImpl::writeTextFile(
+    const std::string &relativePath, const std::string &text, bool overwrite
+) {
 	return writeFile(
 	    relativePath,
 	    reinterpret_cast<const uint8_t *>(text.data()),
@@ -556,7 +558,8 @@ DbResult<JsonDocument> FileStoreImpl::getFileInfo(const std::string &relativePat
 	}
 
 	FileEntryInfo info;
-	const auto st = statFileEntry(*_rt->fs, joinPath(_rt->fileRootDir(), normalized), normalized, info);
+	const auto st =
+	    statFileEntry(*_rt->fs, joinPath(_rt->fileRootDir(), normalized), normalized, info);
 	if (!st.ok()) {
 		res.status = _rt->recordStatus(st);
 		return res;
@@ -610,9 +613,11 @@ DbResult<JsonDocument> FileStoreImpl::listFiles(const std::string &relativePrefi
 		entries.push_back(targetInfo);
 	}
 
-	std::sort(entries.begin(), entries.end(), [](const FileEntryInfo &lhs, const FileEntryInfo &rhs) {
-		return lhs.path < rhs.path;
-	});
+	std::sort(
+	    entries.begin(),
+	    entries.end(),
+	    [](const FileEntryInfo &lhs, const FileEntryInfo &rhs) { return lhs.path < rhs.path; }
+	);
 
 	res.value["prefix"] = normalizedPrefix.c_str();
 	res.value["recursive"] = recursive;
@@ -734,7 +739,8 @@ DbResult<uint32_t> FileStoreImpl::writeFileStreamAsync(
 		return res;
 	}
 	if (!pullCb) {
-		res.status = _rt->recordStatus({DbStatusCode::InvalidArgument, "upload callback is required"});
+		res.status =
+		    _rt->recordStatus({DbStatusCode::InvalidArgument, "upload callback is required"});
 		return res;
 	}
 
@@ -877,7 +883,8 @@ void FileStoreImpl::stopTask(bool cancelPending) {
 	nextUploadId = 1;
 }
 
-DbStatus FileStoreImpl::runUploadJob(const std::shared_ptr<FileUploadJob> &job, size_t &bytesWritten) {
+DbStatus
+FileStoreImpl::runUploadJob(const std::shared_ptr<FileUploadJob> &job, size_t &bytesWritten) {
 	bytesWritten = 0;
 	if (!job || !job->pullCb) {
 		return {DbStatusCode::InvalidArgument, "upload callback is required"};
@@ -1084,7 +1091,9 @@ DbStatus FileStore::writeFileStream(
 }
 
 DbStatus FileStore::writeFileFromPath(
-    const std::string &relativePath, const std::string &sourceFsPath, const ESPJsonDBFileOptions &opts
+    const std::string &relativePath,
+    const std::string &sourceFsPath,
+    const ESPJsonDBFileOptions &opts
 ) {
 	if (!_impl)
 		return {DbStatusCode::NotInitialized, "file store not initialized"};
@@ -1099,9 +1108,8 @@ DbStatus FileStore::writeFile(
 	return _impl->writeFile(relativePath, data, size, overwrite);
 }
 
-DbStatus FileStore::writeTextFile(
-    const std::string &relativePath, const std::string &text, bool overwrite
-) {
+DbStatus
+FileStore::writeTextFile(const std::string &relativePath, const std::string &text, bool overwrite) {
 	if (!_impl)
 		return {DbStatusCode::NotInitialized, "file store not initialized"};
 	return _impl->writeTextFile(relativePath, text, overwrite);
@@ -1175,7 +1183,9 @@ DbStatus FileStore::cancelUpload(uint32_t uploadId) {
 
 DbResult<DbFileUploadState> FileStore::getUploadState(uint32_t uploadId) {
 	if (!_impl)
-		return {{DbStatusCode::NotInitialized, "file store not initialized"},
-		        DbFileUploadState::Failed};
+		return {
+		    {DbStatusCode::NotInitialized, "file store not initialized"},
+		    DbFileUploadState::Failed
+		};
 	return _impl->getUploadState(uploadId);
 }

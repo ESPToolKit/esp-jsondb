@@ -307,26 +307,66 @@ DocView DocView::populate(const char *field, uint8_t maxDepth) const {
 	if (maxDepth == 0) {
 		recordStatus({DbStatusCode::InvalidArgument, "max depth reached"});
 		return DocView(
-		    nullptr, nullptr, nullptr, _db, nullptr, nullptr, nullptr, nullptr, nullptr, false, _usePSRAMBuffers
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    _db,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    false,
+		    _usePSRAMBuffers
 		);
 	}
 	auto ref = getRef(field);
 	if (!ref.valid()) {
 		recordStatus({DbStatusCode::InvalidArgument, "field not DocRef"});
 		return DocView(
-		    nullptr, nullptr, nullptr, _db, nullptr, nullptr, nullptr, nullptr, nullptr, false, _usePSRAMBuffers
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    _db,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    false,
+		    _usePSRAMBuffers
 		);
 	}
 	if (!_db) {
 		recordStatus({DbStatusCode::InvalidArgument, "database context unavailable"});
 		return DocView(
-		    nullptr, nullptr, nullptr, _db, nullptr, nullptr, nullptr, nullptr, nullptr, false, _usePSRAMBuffers
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    _db,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    false,
+		    _usePSRAMBuffers
 		);
 	}
 	auto fr = _db->findById(ref.collection, ref.id);
 	if (!fr.status.ok())
 		return DocView(
-		    nullptr, nullptr, nullptr, _db, nullptr, nullptr, nullptr, nullptr, nullptr, false, _usePSRAMBuffers
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    _db,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    nullptr,
+		    false,
+		    _usePSRAMBuffers
 		);
 	if (maxDepth > 1) {
 		for (auto kv : fr.value.asObjectConst()) {

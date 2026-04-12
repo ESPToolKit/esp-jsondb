@@ -1,6 +1,6 @@
-#include "dbTest.h"
 #include "../src/esp_jsondb/storage/doc_codec.h"
 #include "../src/esp_jsondb/utils/objectId.h"
+#include "dbTest.h"
 
 #if __has_include(<ESPJsonDBCompressor.h>)
 #include <ESPJsonDBCompressor.h>
@@ -50,9 +50,8 @@ void appendU64(JsonDbVector<uint8_t> &out, uint64_t value) {
 	}
 }
 
-JsonDbVector<uint8_t> encodeLegacyRecord(
-    const RecordHeader &header, const JsonDbVector<uint8_t> &payload
-) {
+JsonDbVector<uint8_t>
+encodeLegacyRecord(const RecordHeader &header, const JsonDbVector<uint8_t> &payload) {
 	JsonDbVector<uint8_t> encoded{JsonDbAllocator<uint8_t>(false)};
 	const uint32_t payloadCrc = DocCodec::crc32(payload.data(), payload.size());
 	encoded.insert(encoded.end(), kLegacyMagic, kLegacyMagic + sizeof(kLegacyMagic));
@@ -147,7 +146,11 @@ void DbTester::idLifecycleRoundTripTest() {
 
 	auto createRes = db.create(collection, seed.as<JsonObjectConst>());
 	if (!createRes.status.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "idLifecycleRoundTripTest create failed: %s", createRes.status.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "idLifecycleRoundTripTest create failed: %s",
+		    createRes.status.message
+		);
 		return;
 	}
 	const std::string id = createRes.value;
@@ -164,7 +167,11 @@ void DbTester::idLifecycleRoundTripTest() {
 
 	auto updateStatus = db.updateById(collection, id, [](DocView &doc) { doc["value"].set(2); });
 	if (!updateStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "idLifecycleRoundTripTest updateById failed: %s", updateStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "idLifecycleRoundTripTest updateById failed: %s",
+		    updateStatus.message
+		);
 		return;
 	}
 
@@ -176,7 +183,11 @@ void DbTester::idLifecycleRoundTripTest() {
 
 	auto removeStatus = db.removeById(collection, id);
 	if (!removeStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "idLifecycleRoundTripTest removeById failed: %s", removeStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "idLifecycleRoundTripTest removeById failed: %s",
+		    removeStatus.message
+		);
 		return;
 	}
 
@@ -198,7 +209,11 @@ void DbTester::idLifecycleRoundTripTest() {
 void DbTester::snapshotRestoreIdLifecycleTest() {
 	auto dropStatus = db.dropAll();
 	if (!dropStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "snapshotRestoreIdLifecycleTest dropAll failed: %s", dropStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "snapshotRestoreIdLifecycleTest dropAll failed: %s",
+		    dropStatus.message
+		);
 		return;
 	}
 
@@ -227,7 +242,11 @@ void DbTester::snapshotRestoreIdLifecycleTest() {
 
 	auto syncStatus = db.syncNow();
 	if (!syncStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "snapshotRestoreIdLifecycleTest sync failed: %s", syncStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "snapshotRestoreIdLifecycleTest sync failed: %s",
+		    syncStatus.message
+		);
 		return;
 	}
 
@@ -256,13 +275,20 @@ void DbTester::snapshotRestoreIdLifecycleTest() {
 	badSnapshot["collections"][collection.c_str()][0]["_id"] = "invalid-id";
 	auto badRestoreStatus = db.restoreFromSnapshot(badSnapshot);
 	if (badRestoreStatus.code != DbStatusCode::InvalidArgument) {
-		ESP_LOGE(DB_TESTER_TAG, "snapshotRestoreIdLifecycleTest expected invalid _id restore failure");
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "snapshotRestoreIdLifecycleTest expected invalid _id restore failure"
+		);
 		return;
 	}
 
 	dropStatus = db.dropAll();
 	if (!dropStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "snapshotRestoreIdLifecycleTest second dropAll failed: %s", dropStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "snapshotRestoreIdLifecycleTest second dropAll failed: %s",
+		    dropStatus.message
+		);
 		return;
 	}
 
@@ -303,7 +329,11 @@ void DbTester::snapshotRestoreIdLifecycleTest() {
 void DbTester::snapshotStreamRoundTripTest() {
 	auto dropStatus = db.dropAll();
 	if (!dropStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "snapshotStreamRoundTripTest dropAll failed: %s", dropStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "snapshotStreamRoundTripTest dropAll failed: %s",
+		    dropStatus.message
+		);
 		return;
 	}
 
@@ -316,7 +346,11 @@ void DbTester::snapshotStreamRoundTripTest() {
 		doc["kind"] = "stream";
 		auto createRes = db.create(collection, doc.as<JsonObjectConst>());
 		if (!createRes.status.ok()) {
-			ESP_LOGE(DB_TESTER_TAG, "snapshotStreamRoundTripTest create failed: %s", createRes.status.message);
+			ESP_LOGE(
+			    DB_TESTER_TAG,
+			    "snapshotStreamRoundTripTest create failed: %s",
+			    createRes.status.message
+			);
 			return;
 		}
 		ids.push_back(createRes.value);
@@ -339,7 +373,11 @@ void DbTester::snapshotStreamRoundTripTest() {
 	auto writeStatus = db.writeSnapshot(out, SnapshotMode::OnDiskOnly);
 	out.close();
 	if (!writeStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "snapshotStreamRoundTripTest writeSnapshot failed: %s", writeStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "snapshotStreamRoundTripTest writeSnapshot failed: %s",
+		    writeStatus.message
+		);
 		(void)LittleFS.remove(snapshotPath);
 		return;
 	}
@@ -369,7 +407,11 @@ void DbTester::snapshotStreamRoundTripTest() {
 
 	dropStatus = db.dropAll();
 	if (!dropStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "snapshotStreamRoundTripTest second dropAll failed: %s", dropStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "snapshotStreamRoundTripTest second dropAll failed: %s",
+		    dropStatus.message
+		);
 		(void)LittleFS.remove(snapshotPath);
 		return;
 	}
@@ -410,7 +452,11 @@ void DbTester::snapshotStreamRoundTripTest() {
 void DbTester::snapshotStreamInvalidJsonTest() {
 	auto dropStatus = db.dropAll();
 	if (!dropStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "snapshotStreamInvalidJsonTest dropAll failed: %s", dropStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "snapshotStreamInvalidJsonTest dropAll failed: %s",
+		    dropStatus.message
+		);
 		return;
 	}
 
@@ -419,7 +465,11 @@ void DbTester::snapshotStreamInvalidJsonTest() {
 	seed["value"] = 7;
 	auto createRes = db.create("invalid_snapshot", seed.as<JsonObjectConst>());
 	if (!createRes.status.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "snapshotStreamInvalidJsonTest create failed: %s", createRes.status.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "snapshotStreamInvalidJsonTest create failed: %s",
+		    createRes.status.message
+		);
 		return;
 	}
 
@@ -460,7 +510,11 @@ void DbTester::snapshotStreamInvalidJsonTest() {
 void DbTester::compressedSnapshotRoundTripTest() {
 	auto dropStatus = db.dropAll();
 	if (!dropStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "compressedSnapshotRoundTripTest dropAll failed: %s", dropStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "compressedSnapshotRoundTripTest dropAll failed: %s",
+		    dropStatus.message
+		);
 		return;
 	}
 
@@ -473,7 +527,11 @@ void DbTester::compressedSnapshotRoundTripTest() {
 		doc["kind"] = "compressed";
 		auto createRes = db.create(collection, doc.as<JsonObjectConst>());
 		if (!createRes.status.ok()) {
-			ESP_LOGE(DB_TESTER_TAG, "compressedSnapshotRoundTripTest create failed: %s", createRes.status.message);
+			ESP_LOGE(
+			    DB_TESTER_TAG,
+			    "compressedSnapshotRoundTripTest create failed: %s",
+			    createRes.status.message
+			);
 			return;
 		}
 		ids.push_back(createRes.value);
@@ -488,23 +546,34 @@ void DbTester::compressedSnapshotRoundTripTest() {
 	std::vector<uint8_t> compressed;
 	DynamicBufferSink sink(compressed);
 	auto writeStatus = db.writeCompressedSnapshot(
-	    compressor, sink, SnapshotMode::OnDiskOnly, nullptr, CompressionJobOptions{}
+	    compressor,
+	    sink,
+	    SnapshotMode::OnDiskOnly,
+	    nullptr,
+	    CompressionJobOptions{}
 	);
 	if (!writeStatus.ok() || compressed.empty()) {
-		ESP_LOGE(DB_TESTER_TAG, "compressedSnapshotRoundTripTest writeCompressedSnapshot failed: %s", writeStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "compressedSnapshotRoundTripTest writeCompressedSnapshot failed: %s",
+		    writeStatus.message
+		);
 		return;
 	}
 
 	auto clearStatus = db.dropAll();
 	if (!clearStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "compressedSnapshotRoundTripTest second dropAll failed: %s", clearStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "compressedSnapshotRoundTripTest second dropAll failed: %s",
+		    clearStatus.message
+		);
 		return;
 	}
 
 	BufferSource source(compressed.data(), compressed.size());
-	auto restoreStatus = db.restoreCompressedSnapshot(
-	    compressor, source, nullptr, CompressionJobOptions{}
-	);
+	auto restoreStatus =
+	    db.restoreCompressedSnapshot(compressor, source, nullptr, CompressionJobOptions{});
 	if (!restoreStatus.ok()) {
 		ESP_LOGE(
 		    DB_TESTER_TAG,
@@ -532,7 +601,11 @@ void DbTester::compressedSnapshotRoundTripTest() {
 void DbTester::compressedSnapshotFileRoundTripTest() {
 	auto dropStatus = db.dropAll();
 	if (!dropStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "compressedSnapshotFileRoundTripTest dropAll failed: %s", dropStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "compressedSnapshotFileRoundTripTest dropAll failed: %s",
+		    dropStatus.message
+		);
 		return;
 	}
 
@@ -541,7 +614,11 @@ void DbTester::compressedSnapshotFileRoundTripTest() {
 	doc["value"] = 11;
 	auto createRes = db.create("compressed_files", doc.as<JsonObjectConst>());
 	if (!createRes.status.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "compressedSnapshotFileRoundTripTest create failed: %s", createRes.status.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "compressedSnapshotFileRoundTripTest create failed: %s",
+		    createRes.status.message
+		);
 		return;
 	}
 
@@ -555,28 +632,43 @@ void DbTester::compressedSnapshotFileRoundTripTest() {
 	(void)LittleFS.remove(compressedPath);
 	FileSink sink(LittleFS, compressedPath, true);
 	auto writeStatus = db.writeCompressedSnapshot(
-	    compressor, sink, SnapshotMode::OnDiskOnly, nullptr, CompressionJobOptions{}
+	    compressor,
+	    sink,
+	    SnapshotMode::OnDiskOnly,
+	    nullptr,
+	    CompressionJobOptions{}
 	);
 	if (!writeStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "compressedSnapshotFileRoundTripTest write failed: %s", writeStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "compressedSnapshotFileRoundTripTest write failed: %s",
+		    writeStatus.message
+		);
 		(void)LittleFS.remove(compressedPath);
 		return;
 	}
 
 	auto clearStatus = db.dropAll();
 	if (!clearStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "compressedSnapshotFileRoundTripTest second dropAll failed: %s", clearStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "compressedSnapshotFileRoundTripTest second dropAll failed: %s",
+		    clearStatus.message
+		);
 		(void)LittleFS.remove(compressedPath);
 		return;
 	}
 
 	FileSource source(LittleFS, compressedPath);
-	auto restoreStatus = db.restoreCompressedSnapshot(
-	    compressor, source, nullptr, CompressionJobOptions{}
-	);
+	auto restoreStatus =
+	    db.restoreCompressedSnapshot(compressor, source, nullptr, CompressionJobOptions{});
 	(void)LittleFS.remove(compressedPath);
 	if (!restoreStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "compressedSnapshotFileRoundTripTest restore failed: %s", restoreStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "compressedSnapshotFileRoundTripTest restore failed: %s",
+		    restoreStatus.message
+		);
 		return;
 	}
 
@@ -592,7 +684,11 @@ void DbTester::compressedSnapshotFileRoundTripTest() {
 void DbTester::compressedSnapshotDbFilesRoundTripTest() {
 	auto dropStatus = db.dropAll();
 	if (!dropStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "compressedSnapshotDbFilesRoundTripTest dropAll failed: %s", dropStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "compressedSnapshotDbFilesRoundTripTest dropAll failed: %s",
+		    dropStatus.message
+		);
 		return;
 	}
 
@@ -601,7 +697,11 @@ void DbTester::compressedSnapshotDbFilesRoundTripTest() {
 	doc["value"] = 23;
 	auto createRes = db.create("compressed_db_files", doc.as<JsonObjectConst>());
 	if (!createRes.status.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "compressedSnapshotDbFilesRoundTripTest create failed: %s", createRes.status.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "compressedSnapshotDbFilesRoundTripTest create failed: %s",
+		    createRes.status.message
+		);
 		return;
 	}
 
@@ -614,17 +714,29 @@ void DbTester::compressedSnapshotDbFilesRoundTripTest() {
 	std::vector<uint8_t> compressed;
 	DynamicBufferSink sink(compressed);
 	auto writeStatus = db.writeCompressedSnapshot(
-	    compressor, sink, SnapshotMode::OnDiskOnly, nullptr, CompressionJobOptions{}
+	    compressor,
+	    sink,
+	    SnapshotMode::OnDiskOnly,
+	    nullptr,
+	    CompressionJobOptions{}
 	);
 	if (!writeStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "compressedSnapshotDbFilesRoundTripTest write failed: %s", writeStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "compressedSnapshotDbFilesRoundTripTest write failed: %s",
+		    writeStatus.message
+		);
 		return;
 	}
 
 	auto storeStatus =
 	    db.files().writeFile("backups/latest.esc", compressed.data(), compressed.size(), true);
 	if (!storeStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "compressedSnapshotDbFilesRoundTripTest store failed: %s", storeStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "compressedSnapshotDbFilesRoundTripTest store failed: %s",
+		    storeStatus.message
+		);
 		return;
 	}
 
@@ -635,17 +747,23 @@ void DbTester::compressedSnapshotDbFilesRoundTripTest() {
 	}
 
 	BufferSource source(stagedBackup.value.data(), stagedBackup.value.size());
-	auto restoreStatus = db.restoreCompressedSnapshot(
-	    compressor, source, nullptr, CompressionJobOptions{}
-	);
+	auto restoreStatus =
+	    db.restoreCompressedSnapshot(compressor, source, nullptr, CompressionJobOptions{});
 	if (!restoreStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "compressedSnapshotDbFilesRoundTripTest restore failed: %s", restoreStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "compressedSnapshotDbFilesRoundTripTest restore failed: %s",
+		    restoreStatus.message
+		);
 		return;
 	}
 
 	auto findRes = db.findById("compressed_db_files", createRes.value);
 	if (!findRes.status.ok() || findRes.value["value"].as<int>() != 23) {
-		ESP_LOGE(DB_TESTER_TAG, "compressedSnapshotDbFilesRoundTripTest restore verification failed");
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "compressedSnapshotDbFilesRoundTripTest restore verification failed"
+		);
 		return;
 	}
 
@@ -655,7 +773,11 @@ void DbTester::compressedSnapshotDbFilesRoundTripTest() {
 void DbTester::compressedSnapshotCorruptionTest() {
 	auto dropStatus = db.dropAll();
 	if (!dropStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "compressedSnapshotCorruptionTest dropAll failed: %s", dropStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "compressedSnapshotCorruptionTest dropAll failed: %s",
+		    dropStatus.message
+		);
 		return;
 	}
 
@@ -664,7 +786,11 @@ void DbTester::compressedSnapshotCorruptionTest() {
 	doc["value"] = 99;
 	auto createRes = db.create("corruption_guard", doc.as<JsonObjectConst>());
 	if (!createRes.status.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "compressedSnapshotCorruptionTest create failed: %s", createRes.status.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "compressedSnapshotCorruptionTest create failed: %s",
+		    createRes.status.message
+		);
 		return;
 	}
 
@@ -676,9 +802,8 @@ void DbTester::compressedSnapshotCorruptionTest() {
 
 	const std::vector<uint8_t> corrupt{'n', 'o', 't', '-', 'e', 's', 'c'};
 	BufferSource source(corrupt.data(), corrupt.size());
-	auto restoreStatus = db.restoreCompressedSnapshot(
-	    compressor, source, nullptr, CompressionJobOptions{}
-	);
+	auto restoreStatus =
+	    db.restoreCompressedSnapshot(compressor, source, nullptr, CompressionJobOptions{});
 	if (restoreStatus.ok()) {
 		ESP_LOGE(DB_TESTER_TAG, "compressedSnapshotCorruptionTest expected restore failure");
 		return;
@@ -716,7 +841,11 @@ void DbTester::docCodecCompatibilityTest() {
 	JsonDbVector<uint8_t> encoded{JsonDbAllocator<uint8_t>(false)};
 	auto encodeStatus = DocCodec::encodeRecord(header, payload, encoded);
 	if (!encodeStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "docCodecCompatibilityTest encode failed: %s", encodeStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "docCodecCompatibilityTest encode failed: %s",
+		    encodeStatus.message
+		);
 		return;
 	}
 
@@ -724,8 +853,8 @@ void DbTester::docCodecCompatibilityTest() {
 	JsonDbVector<uint8_t> decodedPayload{JsonDbAllocator<uint8_t>(false)};
 	auto decodeStatus =
 	    DocCodec::decodeRecord(encoded.data(), encoded.size(), decoded, decodedPayload, false);
-	if (!decodeStatus.ok() || decoded.flags != header.flags || decoded.revision != header.revision ||
-	    decodedPayload != payload) {
+	if (!decodeStatus.ok() || decoded.flags != header.flags ||
+	    decoded.revision != header.revision || decodedPayload != payload) {
 		ESP_LOGE(DB_TESTER_TAG, "docCodecCompatibilityTest v2 decode verification failed");
 		return;
 	}
@@ -747,7 +876,10 @@ void DbTester::docCodecCompatibilityTest() {
 	auto badStatus =
 	    DocCodec::decodeRecord(legacy.data(), legacy.size(), badHeader, badPayload, false);
 	if (badStatus.code != DbStatusCode::SchemaMismatch) {
-		ESP_LOGE(DB_TESTER_TAG, "docCodecCompatibilityTest expected SchemaMismatch for bad version");
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "docCodecCompatibilityTest expected SchemaMismatch for bad version"
+		);
 		return;
 	}
 
@@ -765,7 +897,11 @@ void DbTester::optimisticConflictTest() {
 	seed["count"] = 0;
 	auto createRes = db.create("conflict_docs", seed.as<JsonObjectConst>());
 	if (!createRes.status.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "optimisticConflictTest create failed: %s", createRes.status.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "optimisticConflictTest create failed: %s",
+		    createRes.status.message
+		);
 		return;
 	}
 
@@ -774,13 +910,21 @@ void DbTester::optimisticConflictTest() {
 		auto nested =
 		    db.updateById("conflict_docs", id, [](DocView &inner) { inner["count"].set(2); });
 		if (!nested.ok()) {
-			ESP_LOGE(DB_TESTER_TAG, "optimisticConflictTest nested update failed: %s", nested.message);
+			ESP_LOGE(
+			    DB_TESTER_TAG,
+			    "optimisticConflictTest nested update failed: %s",
+			    nested.message
+			);
 			return;
 		}
 		doc["count"].set(1);
 	});
 	if (updateStatus.code != DbStatusCode::Conflict) {
-		ESP_LOGE(DB_TESTER_TAG, "optimisticConflictTest expected Conflict, got %s", updateStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "optimisticConflictTest expected Conflict, got %s",
+		    updateStatus.message
+		);
 		return;
 	}
 
@@ -797,7 +941,11 @@ void DbTester::documentFileDeletionOnSyncTest() {
 	const std::string collection = "sync_delete_files";
 	auto clearStatus = db.dropAll();
 	if (!clearStatus.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "documentFileDeletionOnSyncTest dropAll failed: %s", clearStatus.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "documentFileDeletionOnSyncTest dropAll failed: %s",
+		    clearStatus.message
+		);
 		return;
 	}
 
@@ -827,7 +975,11 @@ void DbTester::documentFileDeletionOnSyncTest() {
 
 	auto seedSync = db.syncNow();
 	if (!seedSync.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "documentFileDeletionOnSyncTest seed sync failed: %s", seedSync.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "documentFileDeletionOnSyncTest seed sync failed: %s",
+		    seedSync.message
+		);
 		return;
 	}
 
@@ -840,7 +992,11 @@ void DbTester::documentFileDeletionOnSyncTest() {
 
 	auto removeOne = db.removeById(collection, firstCreate.value);
 	if (!removeOne.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "documentFileDeletionOnSyncTest removeById failed: %s", removeOne.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "documentFileDeletionOnSyncTest removeById failed: %s",
+		    removeOne.message
+		);
 		return;
 	}
 
@@ -854,12 +1010,19 @@ void DbTester::documentFileDeletionOnSyncTest() {
 
 	auto cleanupSync = db.syncNow();
 	if (!cleanupSync.ok()) {
-		ESP_LOGE(DB_TESTER_TAG, "documentFileDeletionOnSyncTest cleanup sync failed: %s", cleanupSync.message);
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "documentFileDeletionOnSyncTest cleanup sync failed: %s",
+		    cleanupSync.message
+		);
 		return;
 	}
 
 	if (LittleFS.exists(firstPath.c_str()) || LittleFS.exists(secondPath.c_str())) {
-		ESP_LOGE(DB_TESTER_TAG, "documentFileDeletionOnSyncTest stale document files remain after sync");
+		ESP_LOGE(
+		    DB_TESTER_TAG,
+		    "documentFileDeletionOnSyncTest stale document files remain after sync"
+		);
 		return;
 	}
 
