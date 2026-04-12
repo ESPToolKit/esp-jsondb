@@ -21,6 +21,9 @@ The format follows Keep a Changelog and the project adheres to Semantic Versioni
 - Compatibility aliases `getDiag()`, `getAllCollectionName()`, and `unRegisterSchema()`.
 - Direct file helper methods from `ESPJsonDB`; use `db.files()` only.
 
+### Fixed
+- CI now pins PIOArduino Core to `v6.1.19` and installs the ESP32 platform via `pio pkg install`, restoring PlatformIO compatibility with the current `platform-espressif32` package.
+
 ## [2.0.0] - 2026-03-27
 ### Added
 - Durable `.jdb` record format with persisted `_id`, `createdAtMs`, `updatedAtMs`, `revision`, and `flags`.

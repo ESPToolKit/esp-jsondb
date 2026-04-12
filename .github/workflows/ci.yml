@@ -41,15 +41,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.platformio
-          key: ${{ runner.os }}-platformio-${{ hashFiles('**/library.json') }}
+          key: ${{ runner.os }}-platformio-pioarduino-6.1.19-${{ hashFiles('**/library.json') }}
           restore-keys: |
-            ${{ runner.os }}-platformio-
+            ${{ runner.os }}-platformio-pioarduino-6.1.19-
 
       - name: Install PIOArduino Core
-        run: python -m pip install --upgrade https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.18.zip
+        run: python -m pip install --upgrade https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
 
       - name: Install PIOArduino ESP32 Platform
-        run: pio platform install https://github.com/pioarduino/platform-espressif32.git
+        run: pio pkg install -g -p https://github.com/pioarduino/platform-espressif32.git
 
       - name: Build library examples (ESP32 Arduino)
         run: |
