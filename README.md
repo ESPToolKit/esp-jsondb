@@ -1,3 +1,10 @@
+> [!WARNING]
+> This repository is deprecated and no longer maintained.
+>
+> Development continues in the completely reworked repository:
+> **[ZekStack/Fresh]([https://github.com/OWNER/NEW-REPOSITORY](https://github.com/ZekStack/fresh))**
+>
+
 # ESPJsonDB
 
 ESPJsonDB is an embedded document database for ESP32 boards. Version 2 stores document payloads as MessagePack inside durable `.jdb` records, keeps document metadata on disk, and separates document storage from generic file storage.
